@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,10 @@ class PdfVirtualCache {
   final LinkedHashMap<String, Uint8List> _cache = LinkedHashMap();
   final Map<String, Future<Uint8List?>> _inFlightRenders = {};
   final LinkedHashMap<String, Uint8List> _docBytesCache = LinkedHashMap();
+
+  // Concurrency throttling (max 2 parallel renders)
+  int _activeRenders = 0;
+  final Queue<void Function()> _renderQueue = Queue();
 
   Uint8List? getPage(PdfPageRenderRequest request) {
     final key = request.cacheKey;
@@ -104,6 +109,13 @@ class PdfVirtualCache {
   }
 
   Future<Uint8List?> _renderPageInternal(PdfPageRenderRequest request) async {
+    if (_activeRenders >= 2) {
+      final completer = Completer<void>();
+      _renderQueue.add(completer.complete);
+      await completer.future;
+    }
+    _activeRenders++;
+
     try {
       final docBytes = await _loadDocBytes(request.pdfPath);
       if (docBytes == null || docBytes.isEmpty) {
@@ -119,19 +131,45 @@ class PdfVirtualCache {
     } catch (e) {
       debugPrint('[PdfVirtualCache] Error rendering page ${request.pageIndex} of ${request.pdfPath}: $e');
     } finally {
+      _activeRenders--;
+      if (_renderQueue.isNotEmpty) {
+        final next = _renderQueue.removeFirst();
+        next();
+      }
       _inFlightRenders.remove(request.cacheKey);
     }
     return null;
   }
 
+  static bool _sublistContains(Uint8List bytes, int start, int end, List<int> target) {
+    final s = start < 0 ? 0 : start;
+    final e = end > bytes.length ? bytes.length : end;
+    final tLen = target.length;
+    for (int i = s; i <= e - tLen; i++) {
+      bool m = true;
+      for (int j = 0; j < tLen; j++) {
+        if (bytes[i + j] != target[j]) {
+          m = false;
+          break;
+        }
+      }
+      if (m) return true;
+    }
+    return false;
+  }
+
   /// Fast scanner that inspects PDF binary bytes for the total page count with multi-strategy fallbacks
   static int getPdfPageCountFromBytes(Uint8List bytes) {
     try {
-      int maxCount = 0;
       final len = bytes.length;
       final countTarget = [47, 67, 111, 117, 110, 116]; // '/Count'
+      final outlinesTarget = [47, 79, 117, 116, 108, 105, 110, 101, 115]; // '/Outlines'
+      final pagesTarget = [47, 80, 97, 103, 101, 115]; // '/Pages'
 
-      // Strategy 1: Scan for /Count integers in page dictionary
+      int pagesCount = 0;
+      int maxOtherCount = 0;
+
+      // Strategy 1: Scan for /Count integers in page dictionary, prioritizing /Type /Pages and ignoring /Outlines
       for (int i = 0; i < len - 10; i++) {
         bool match = true;
         for (int j = 0; j < 6; j++) {
@@ -152,15 +190,45 @@ class PdfVirtualCache {
             num = num * 10 + (bytes[k] - 48);
             k++;
           }
-          if (hasDigit && num > maxCount) {
-            maxCount = num;
+          if (hasDigit && num > 0) {
+            // Find enclosing dictionary << ... >> boundaries
+            int dictStart = i;
+            while (dictStart > 1 && dictStart > i - 500) {
+              if (bytes[dictStart] == 60 && bytes[dictStart - 1] == 60) {
+                break;
+              }
+              dictStart--;
+            }
+            int dictEnd = i;
+            while (dictEnd < len - 1 && dictEnd < i + 500) {
+              if (bytes[dictEnd] == 62 && bytes[dictEnd + 1] == 62) {
+                break;
+              }
+              dictEnd++;
+            }
+
+            final isOutlines = _sublistContains(bytes, dictStart, dictEnd + 2, outlinesTarget);
+            final isPages = _sublistContains(bytes, dictStart, dictEnd + 2, pagesTarget);
+
+            if (!isOutlines && isPages) {
+              if (num > pagesCount) {
+                pagesCount = num;
+              }
+            } else if (!isOutlines) {
+              if (num > maxOtherCount) {
+                maxOtherCount = num;
+              }
+            }
           }
           i = k;
         }
       }
 
-      if (maxCount > 0) {
-        return maxCount;
+      if (pagesCount > 0) {
+        return pagesCount;
+      }
+      if (maxOtherCount > 0) {
+        return maxOtherCount;
       }
 
       // Strategy 2: Fallback scanning for /Type /Page occurrences (ignoring /Type /Pages)

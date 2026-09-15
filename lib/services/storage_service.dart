@@ -120,6 +120,18 @@ class StorageService {
           notebooks.add(NotebookModel.fromJson(json as Map<String, dynamic>));
         } catch (e) {
           debugPrint('[StorageService] Error reading notebook file ${file.path}: $e');
+          // Attempt automatic recovery from .bak file if available
+          final bakFile = File('${file.path}.bak');
+          if (await bakFile.exists()) {
+            try {
+              final bakContent = await bakFile.readAsString();
+              final bakJson = jsonDecode(bakContent);
+              notebooks.add(NotebookModel.fromJson(bakJson as Map<String, dynamic>));
+              debugPrint('[StorageService] Successfully recovered notebook from backup: ${bakFile.path}');
+            } catch (bakErr) {
+              debugPrint('[StorageService] Failed to recover from backup: $bakErr');
+            }
+          }
         }
       }
       // Sort recently updated first
@@ -131,14 +143,45 @@ class StorageService {
     }
   }
 
-  Future<void> saveNotebook(NotebookModel notebook) async {
+  final Map<String, Future<bool>> _saveQueues = {};
+
+  Future<bool> saveNotebook(NotebookModel notebook) {
+    final previous = _saveQueues[notebook.id] ?? Future.value(true);
+    final task = previous.then((_) => _atomicSaveNotebook(notebook));
+    _saveQueues[notebook.id] = task;
+    return task;
+  }
+
+  Future<bool> _atomicSaveNotebook(NotebookModel notebook) async {
     try {
       final dir = await notebooksDir;
-      final file = File('${dir.path}/${notebook.id}.json');
+      final targetFile = File('${dir.path}/${notebook.id}.json');
+      final tempFile = File('${dir.path}/${notebook.id}.json.tmp');
+      final backupFile = File('${dir.path}/${notebook.id}.json.bak');
+
       final jsonStr = jsonEncode(notebook.toJson());
-      await file.writeAsString(jsonStr, flush: true);
+      await tempFile.writeAsString(jsonStr, flush: true);
+
+      // Create backup copy of previous valid file
+      if (await targetFile.exists()) {
+        try {
+          await targetFile.copy(backupFile.path);
+        } catch (_) {}
+      }
+
+      // Atomic rename with copy fallback
+      try {
+        await tempFile.rename(targetFile.path);
+      } catch (_) {
+        await tempFile.copy(targetFile.path);
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      }
+      return true;
     } catch (e) {
       debugPrint('[StorageService] Error saving notebook ${notebook.id}: $e');
+      return false;
     }
   }
 
@@ -148,6 +191,14 @@ class StorageService {
       final file = File('${dir.path}/$notebookId.json');
       if (await file.exists()) {
         await file.delete();
+      }
+      final bakFile = File('${dir.path}/$notebookId.json.bak');
+      if (await bakFile.exists()) {
+        await bakFile.delete();
+      }
+      final tmpFile = File('${dir.path}/$notebookId.json.tmp');
+      if (await tmpFile.exists()) {
+        await tmpFile.delete();
       }
       final pdfDir = await pdfsDir;
       final pdfFile = File('${pdfDir.path}/$notebookId.pdf');

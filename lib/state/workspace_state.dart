@@ -43,6 +43,7 @@ class WorkspaceState extends ChangeNotifier {
   void closeTab(int index) {
     if (index < 0 || index >= _openNotebookIds.length) return;
 
+    final currentActiveId = primaryNotebookId;
     final closedId = _openNotebookIds[index];
     _openNotebookIds.removeAt(index);
 
@@ -54,8 +55,19 @@ class WorkspaceState extends ChangeNotifier {
     if (_openNotebookIds.isEmpty) {
       _activeTabIndex = 0;
       _isSplitScreen = false;
-    } else if (_activeTabIndex >= _openNotebookIds.length) {
-      _activeTabIndex = _openNotebookIds.length - 1;
+    } else {
+      if (closedId == currentActiveId) {
+        // If we closed the active tab, switch to adjacent tab
+        if (index >= _openNotebookIds.length) {
+          _activeTabIndex = _openNotebookIds.length - 1;
+        } else {
+          _activeTabIndex = index;
+        }
+      } else if (currentActiveId != null) {
+        // Keep the same active notebook selected
+        final newActiveIndex = _openNotebookIds.indexOf(currentActiveId);
+        _activeTabIndex = newActiveIndex != -1 ? newActiveIndex : 0;
+      }
     }
     notifyListeners();
   }

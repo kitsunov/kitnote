@@ -28,6 +28,18 @@ void main() {
       expect(count, equals(500));
     });
 
+    test('getPdfPageCountFromBytes ignores /Outlines count and picks /Pages count', () {
+      final mockPdfWithOutlines = utf8.encode(
+        '%PDF-1.7\n'
+        '1 0 obj << /Type /Outlines /Count 120 /First 5 0 R >> endobj\n'
+        '2 0 obj << /Type /Pages /Count 12 /Kids [3 0 R] >> endobj\n'
+        '%%EOF',
+      );
+
+      final count = PdfVirtualCache.getPdfPageCountFromBytes(Uint8List.fromList(mockPdfWithOutlines));
+      expect(count, equals(12));
+    });
+
     test('getPdfPageCountFromBytes falls back to 1 for empty or non-pdf bytes', () {
       final invalidBytes = Uint8List.fromList([1, 2, 3, 4, 5]);
       final count = PdfVirtualCache.getPdfPageCountFromBytes(invalidBytes);

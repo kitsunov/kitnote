@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/notebook_model.dart';
+import '../../state/library_state.dart';
 import '../../state/notebook_editor_state.dart';
 import '../../state/workspace_state.dart';
 import 'canvas/interactive_canvas.dart';
@@ -27,22 +28,25 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
   @override
   void initState() {
     super.initState();
-    _primaryEditorState = NotebookEditorState(notebook: widget.primaryNotebook);
+    final library = context.read<LibraryState>();
+    _primaryEditorState = library.getOrCreateEditor(widget.primaryNotebook.id);
     if (widget.secondaryNotebook != null) {
-      _secondaryEditorState = NotebookEditorState(notebook: widget.secondaryNotebook!);
+      _secondaryEditorState = library.getOrCreateEditor(widget.secondaryNotebook!.id);
     }
   }
 
   @override
   void didUpdateWidget(covariant SplitScreenContainer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final library = context.read<LibraryState>();
     if (oldWidget.primaryNotebook.id != widget.primaryNotebook.id) {
-      _primaryEditorState = NotebookEditorState(notebook: widget.primaryNotebook);
+      _primaryEditorState = library.getOrCreateEditor(widget.primaryNotebook.id);
     }
-    if (widget.secondaryNotebook != null &&
-        (oldWidget.secondaryNotebook?.id != widget.secondaryNotebook!.id || _secondaryEditorState == null)) {
-      _secondaryEditorState = NotebookEditorState(notebook: widget.secondaryNotebook!);
-    } else if (widget.secondaryNotebook == null) {
+    if (widget.secondaryNotebook != null) {
+      if (oldWidget.secondaryNotebook?.id != widget.secondaryNotebook!.id || _secondaryEditorState == null) {
+        _secondaryEditorState = library.getOrCreateEditor(widget.secondaryNotebook!.id);
+      }
+    } else {
       _secondaryEditorState = null;
     }
   }

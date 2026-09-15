@@ -171,10 +171,10 @@ class NotebookCard extends StatelessWidget {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('${strings.exportPdf}...')),
                               );
-                              final file = await ExportService.exportNotebookToPdf(notebook);
+                              final file = await ExportService.exportNotebookToPdf(notebook, share: true);
                               if (file != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(file.path)),
+                                  SnackBar(content: Text('${strings.exportPdf}: ${file.path.split('/').last}')),
                                 );
                               }
                             } else if (action == 'delete') {

@@ -81,5 +81,50 @@ void main() {
       expect(state.notebook.pages[0].pageIndex, equals(0));
       expect(state.notebook.pages[1].pageIndex, equals(1));
     });
+
+    test('document-level undo and redo properly handles page addition and deletion', () {
+      expect(state.notebook.pages.length, equals(1));
+      expect(state.canUndo, isFalse);
+
+      // Add page 2
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(2));
+      expect(state.currentPageIndex, equals(1));
+      expect(state.canUndo, isTrue);
+
+      // Undo page addition restores page count to 1
+      state.undo();
+      expect(state.notebook.pages.length, equals(1));
+      expect(state.currentPageIndex, equals(0));
+      expect(state.canRedo, isTrue);
+
+      // Redo restores page 2
+      state.redo();
+      expect(state.notebook.pages.length, equals(2));
+      expect(state.currentPageIndex, equals(1));
+
+      // Delete page 2
+      state.deleteCurrentPage();
+      expect(state.notebook.pages.length, equals(1));
+
+      // Undo deletion restores page 2
+      state.undo();
+      expect(state.notebook.pages.length, equals(2));
+      expect(state.currentPageIndex, equals(1));
+    });
+
+    test('onNotebookChanged callback is invoked on edits', () {
+      NotebookModel? notifiedNotebook;
+      final editorWithCallback = NotebookEditorState(
+        notebook: testNotebook,
+        onNotebookChanged: (updated) {
+          notifiedNotebook = updated;
+        },
+      );
+
+      editorWithCallback.addNewPage();
+      expect(notifiedNotebook, isNotNull);
+      expect(notifiedNotebook!.pages.length, equals(2));
+    });
   });
 }

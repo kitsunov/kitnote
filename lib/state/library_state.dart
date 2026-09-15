@@ -9,6 +9,7 @@ import '../models/page_model.dart';
 import '../models/page_template_model.dart';
 import '../services/google_drive_service.dart';
 import '../services/storage_service.dart';
+import 'notebook_editor_state.dart';
 
 class LibraryState extends ChangeNotifier {
   final StorageService _storage = StorageService();
@@ -162,6 +163,33 @@ class LibraryState extends ChangeNotifier {
     }
   }
 
+  final Map<String, NotebookEditorState> _activeEditors = {};
+
+  NotebookEditorState getOrCreateEditor(String notebookId) {
+    final existing = _activeEditors[notebookId];
+    if (existing != null) {
+      return existing;
+    }
+    final notebook = _notebooks.firstWhere(
+      (n) => n.id == notebookId,
+      orElse: () => NotebookModel.createNew(id: notebookId, title: 'Untitled'),
+    );
+    final editor = NotebookEditorState(
+      notebook: notebook,
+      onNotebookChanged: (updated) => syncNotebookInMemory(updated),
+    );
+    _activeEditors[notebookId] = editor;
+    return editor;
+  }
+
+  void syncNotebookInMemory(NotebookModel updated) {
+    final index = _notebooks.indexWhere((n) => n.id == updated.id);
+    if (index != -1) {
+      _notebooks[index] = updated;
+      notifyListeners();
+    }
+  }
+
   Future<void> updateNotebook(NotebookModel updated) async {
     final index = _notebooks.indexWhere((n) => n.id == updated.id);
     if (index != -1) {
@@ -172,6 +200,7 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<void> deleteNotebook(String notebookId) async {
+    _activeEditors.remove(notebookId)?.dispose();
     _notebooks.removeWhere((n) => n.id == notebookId);
     await _storage.deleteNotebook(notebookId);
     notifyListeners();
@@ -196,7 +225,7 @@ class LibraryState extends ChangeNotifier {
     // Unassign folder from notebooks
     for (int i = 0; i < _notebooks.length; i++) {
       if (_notebooks[i].folderId == folderId) {
-        _notebooks[i] = _notebooks[i].copyWith(folderId: null);
+        _notebooks[i] = _notebooks[i].copyWith(clearFolderId: true);
         await _storage.saveNotebook(_notebooks[i]);
       }
     }
@@ -211,5 +240,14 @@ class LibraryState extends ChangeNotifier {
   Future<void> triggerSync() async {
     await _googleDrive.syncAll(_notebooks);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    for (final editor in _activeEditors.values) {
+      editor.dispose();
+    }
+    _activeEditors.clear();
+    super.dispose();
   }
 }

@@ -13,20 +13,19 @@ import '../models/text_element_model.dart';
 import '../models/tool_type.dart';
 import '../services/storage_service.dart';
 
-class PageUndoState {
-  final List<StrokeModel> strokes;
-  final List<TextElementModel> textElements;
-  final List<ImageElementModel> imageElements;
+class NotebookUndoState {
+  final List<PageModel> pages;
+  final int currentPageIndex;
 
-  PageUndoState({
-    required this.strokes,
-    required this.textElements,
-    required this.imageElements,
+  NotebookUndoState({
+    required this.pages,
+    required this.currentPageIndex,
   });
 }
 
 class NotebookEditorState extends ChangeNotifier {
   NotebookModel notebook;
+  final void Function(NotebookModel updated)? onNotebookChanged;
   int _currentPageIndex = 0;
 
   // Active Tool Configuration
@@ -55,10 +54,13 @@ class NotebookEditorState extends ChangeNotifier {
   final Set<String> _selectedImageIds = {};
 
   // Undo / Redo stacks
-  final List<PageUndoState> _undoStack = [];
-  final List<PageUndoState> _redoStack = [];
+  final List<NotebookUndoState> _undoStack = [];
+  final List<NotebookUndoState> _redoStack = [];
 
-  NotebookEditorState({required this.notebook});
+  NotebookEditorState({
+    required this.notebook,
+    this.onNotebookChanged,
+  });
 
   // Getters
   int get currentPageIndex => _currentPageIndex;
@@ -108,6 +110,7 @@ class NotebookEditorState extends ChangeNotifier {
         return s;
       }).toList();
       _updateCurrentPageStrokes(updatedStrokes);
+      _saveToStorage();
     }
     notifyListeners();
   }
@@ -141,8 +144,6 @@ class NotebookEditorState extends ChangeNotifier {
   void goToPage(int index) {
     if (index >= 0 && index < notebook.pages.length) {
       _currentPageIndex = index;
-      _undoStack.clear();
-      _redoStack.clear();
       _clearLassoSelection();
       notifyListeners();
     }
@@ -238,8 +239,6 @@ class NotebookEditorState extends ChangeNotifier {
   void setActivePageIndex(int index) {
     if (index >= 0 && index < notebook.pages.length && _currentPageIndex != index) {
       _currentPageIndex = index;
-      _undoStack.clear();
-      _redoStack.clear();
       _clearLassoSelection();
       notifyListeners();
     }
@@ -497,10 +496,9 @@ class NotebookEditorState extends ChangeNotifier {
 
   // Undo / Redo
   void _recordUndoState() {
-    _undoStack.add(PageUndoState(
-      strokes: List.from(currentPage.strokes),
-      textElements: List.from(currentPage.textElements),
-      imageElements: List.from(currentPage.imageElements),
+    _undoStack.add(NotebookUndoState(
+      pages: List<PageModel>.from(notebook.pages),
+      currentPageIndex: _currentPageIndex,
     ));
     _redoStack.clear();
   }
@@ -508,16 +506,18 @@ class NotebookEditorState extends ChangeNotifier {
   void undo() {
     if (_undoStack.isEmpty) return;
     final previous = _undoStack.removeLast();
-    _redoStack.add(PageUndoState(
-      strokes: List.from(currentPage.strokes),
-      textElements: List.from(currentPage.textElements),
-      imageElements: List.from(currentPage.imageElements),
+    _redoStack.add(NotebookUndoState(
+      pages: List<PageModel>.from(notebook.pages),
+      currentPageIndex: _currentPageIndex,
     ));
 
-    _updateCurrentPageAll(
-      strokes: previous.strokes,
-      textElements: previous.textElements,
-      imageElements: previous.imageElements,
+    notebook = notebook.copyWith(
+      pages: previous.pages,
+      updatedAt: DateTime.now(),
+    );
+    _currentPageIndex = previous.currentPageIndex.clamp(
+      0,
+      notebook.pages.isEmpty ? 0 : notebook.pages.length - 1,
     );
     _saveToStorage();
     notifyListeners();
@@ -526,16 +526,18 @@ class NotebookEditorState extends ChangeNotifier {
   void redo() {
     if (_redoStack.isEmpty) return;
     final next = _redoStack.removeLast();
-    _undoStack.add(PageUndoState(
-      strokes: List.from(currentPage.strokes),
-      textElements: List.from(currentPage.textElements),
-      imageElements: List.from(currentPage.imageElements),
+    _undoStack.add(NotebookUndoState(
+      pages: List<PageModel>.from(notebook.pages),
+      currentPageIndex: _currentPageIndex,
     ));
 
-    _updateCurrentPageAll(
-      strokes: next.strokes,
-      textElements: next.textElements,
-      imageElements: next.imageElements,
+    notebook = notebook.copyWith(
+      pages: next.pages,
+      updatedAt: DateTime.now(),
+    );
+    _currentPageIndex = next.currentPageIndex.clamp(
+      0,
+      notebook.pages.isEmpty ? 0 : notebook.pages.length - 1,
     );
     _saveToStorage();
     notifyListeners();
@@ -575,6 +577,7 @@ class NotebookEditorState extends ChangeNotifier {
   }
 
   void _saveToStorage() {
+    onNotebookChanged?.call(notebook);
     StorageService().saveNotebook(notebook);
   }
 }

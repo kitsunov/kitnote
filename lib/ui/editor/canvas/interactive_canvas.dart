@@ -26,11 +26,67 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
   final TransformationController _transformController = TransformationController();
   bool _isDrawingWithStylus = false;
   int? _drawingPageIndex;
+  int? _activeDrawingPointerId;
+  double _viewportHeight = 800.0;
+  int _visibleStartPage = 0;
+  int _visibleEndPage = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformController.addListener(_onTransformChanged);
+  }
 
   @override
   void dispose() {
+    _transformController.removeListener(_onTransformChanged);
     _transformController.dispose();
     super.dispose();
+  }
+
+  void _onTransformChanged() {
+    _updateVisibleRange();
+  }
+
+  void _updateVisibleRange() {
+    final pages = widget.editorState.notebook.pages;
+    if (pages.isEmpty) return;
+
+    final matrix = _transformController.value;
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 0) return;
+
+    final ty = matrix.storage[13];
+    // Document space visible Y with 1500px pre-rendering buffer above and below
+    final visibleTopDoc = (-ty) / scale - 1500;
+    final visibleBottomDoc = (-ty + _viewportHeight) / scale + 1500;
+
+    double cumulativeY = 40.0;
+    int start = 0;
+    int end = pages.length - 1;
+    bool foundStart = false;
+
+    for (int i = 0; i < pages.length; i++) {
+      final pageHeight = pages[i].height + 44 + (i == 0 ? 0 : 36);
+      final pageBottom = cumulativeY + pageHeight;
+
+      if (!foundStart && pageBottom >= visibleTopDoc) {
+        start = i > 0 ? i - 1 : 0;
+        foundStart = true;
+      }
+      if (cumulativeY > visibleBottomDoc) {
+        end = i;
+        break;
+      }
+      cumulativeY = pageBottom;
+    }
+
+    if (start != _visibleStartPage || end != _visibleEndPage) {
+      setState(() {
+        _visibleStartPage = start;
+        _visibleEndPage = end;
+      });
+    }
   }
 
   void _showEditTextDialog(BuildContext context, NotebookEditorState state, TextElementModel txt) {
@@ -159,80 +215,85 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
     final strings = AppLocalizations.of(context).strings;
     final pages = state.notebook.pages;
 
-    return Container(
-      color: Colors.grey.shade300,
-      child: Stack(
-        children: [
-          // Zoomable & Pannable Document Viewport with continuous vertical pages flow
-          InteractiveViewer(
-            transformationController: _transformController,
-            panEnabled: !_isDrawingWithStylus,
-            scaleEnabled: !_isDrawingWithStylus,
-            minScale: 0.25,
-            maxScale: 4.0,
-            boundaryMargin: const EdgeInsets.symmetric(horizontal: 400, vertical: 800),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (int i = 0; i < pages.length; i++)
-                      _buildPageItem(context, state, i, pages[i], strings),
-                    _buildAddPageButton(context, state, strings),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Screen Ruler Overlay (if enabled)
-          if (state.isRulerEnabled)
-            RulerOverlay(
-              position: state.rulerPosition,
-              angle: state.rulerAngle,
-              onTransform: (delta, angleDelta) {
-                state.updateRulerTransform(delta, angleDelta);
-              },
-              onClose: () => state.toggleRuler(),
-            ),
-
-          // Lasso Selection Actions Bar
-          if (state.selectedStrokeIds.isNotEmpty)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Material(
-                elevation: 6,
-                borderRadius: BorderRadius.circular(20),
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${state.selectedStrokeIds.length} ${strings.lasso}',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                        tooltip: strings.deletePage,
-                        onPressed: () => state.deleteLassoSelection(),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20),
-                        tooltip: strings.cancel,
-                        onPressed: () => state.clearLassoSelection(),
-                      ),
-                    ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _viewportHeight = constraints.maxHeight;
+        return Container(
+          color: Colors.grey.shade300,
+          child: Stack(
+            children: [
+              // Zoomable & Pannable Document Viewport with continuous vertical pages flow
+              InteractiveViewer(
+                transformationController: _transformController,
+                panEnabled: !_isDrawingWithStylus,
+                scaleEnabled: !_isDrawingWithStylus,
+                minScale: 0.25,
+                maxScale: 4.0,
+                boundaryMargin: const EdgeInsets.symmetric(horizontal: 400, vertical: 800),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (int i = 0; i < pages.length; i++)
+                          _buildPageItem(context, state, i, pages[i], strings),
+                        _buildAddPageButton(context, state, strings),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
-      ),
+
+              // Screen Ruler Overlay (if enabled)
+              if (state.isRulerEnabled)
+                RulerOverlay(
+                  position: state.rulerPosition,
+                  angle: state.rulerAngle,
+                  onTransform: (delta, angleDelta) {
+                    state.updateRulerTransform(delta, angleDelta);
+                  },
+                  onClose: () => state.toggleRuler(),
+                ),
+
+              // Lasso Selection Actions Bar
+              if (state.selectedStrokeIds.isNotEmpty)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Material(
+                    elevation: 6,
+                    borderRadius: BorderRadius.circular(20),
+                    color: Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${state.selectedStrokeIds.length} ${strings.lasso}',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                            tooltip: strings.deletePage,
+                            onPressed: () => state.deleteLassoSelection(),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            tooltip: strings.cancel,
+                            onPressed: () => state.clearLassoSelection(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -244,61 +305,104 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
     AppStrings strings,
   ) {
     final isPdf = state.notebook.sourcePdfPath != null;
+    final isVisible = pageIndex >= _visibleStartPage && pageIndex <= _visibleEndPage;
+
+    final header = Container(
+      width: page.width,
+      margin: EdgeInsets.only(top: pageIndex == 0 ? 0 : 36, bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isPdf ? Icons.picture_as_pdf : Icons.article_outlined,
+            size: 18,
+            color: isPdf ? Colors.red.shade600 : Colors.blue.shade600,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${strings.page} ${pageIndex + 1}',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+          const Spacer(),
+          if (state.notebook.pages.length > 1)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: strings.deletePage,
+              onPressed: () => _confirmDeletePage(context, state, pageIndex),
+            ),
+        ],
+      ),
+    );
+
+    if (!isVisible) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          header,
+          Container(
+            width: page.width,
+            height: page.height,
+            decoration: BoxDecoration(
+              color: page.template.backgroundColor,
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 16,
+                  spreadRadius: 2,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Center(
+              child: isPdf
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.picture_as_pdf, size: 48, color: Colors.black26),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${strings.page} ${pageIndex + 1}',
+                          style: const TextStyle(color: Colors.black38, fontSize: 14),
+                        ),
+                      ],
+                    )
+                  : null,
+            ),
+          ),
+        ],
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Page Signature / Header badge
-        Container(
-          width: page.width,
-          margin: EdgeInsets.only(top: pageIndex == 0 ? 0 : 36, bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black12,
-                blurRadius: 4,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isPdf ? Icons.picture_as_pdf : Icons.article_outlined,
-                size: 18,
-                color: isPdf ? Colors.red.shade600 : Colors.blue.shade600,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${strings.page} ${pageIndex + 1}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const Spacer(),
-              if (state.notebook.pages.length > 1)
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  tooltip: strings.deletePage,
-                  onPressed: () => _confirmDeletePage(context, state, pageIndex),
-                ),
-            ],
-          ),
-        ),
+        header,
 
         // Page Canvas
         Listener(
           onPointerDown: (event) {
             final canDraw = state.palmRejection.shouldAcceptPointerForInking(event);
-            if (canDraw) {
+            if (canDraw && _activeDrawingPointerId == null) {
+              _activeDrawingPointerId = event.pointer;
               state.setActivePageIndex(pageIndex);
               setState(() {
                 _isDrawingWithStylus = true;
@@ -317,7 +421,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
             }
           },
           onPointerMove: (event) {
-            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex) {
+            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex && event.pointer == _activeDrawingPointerId) {
               final canvasPt = Offset(
                 event.localPosition.dx.clamp(0.0, page.width),
                 event.localPosition.dy.clamp(0.0, page.height),
@@ -332,7 +436,8 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
           },
           onPointerUp: (event) {
             state.palmRejection.handlePointerUp(event);
-            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex) {
+            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex && event.pointer == _activeDrawingPointerId) {
+              _activeDrawingPointerId = null;
               setState(() {
                 _isDrawingWithStylus = false;
                 _drawingPageIndex = null;
@@ -342,7 +447,8 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
           },
           onPointerCancel: (event) {
             state.palmRejection.handlePointerCancel(event);
-            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex) {
+            if (_isDrawingWithStylus && _drawingPageIndex == pageIndex && event.pointer == _activeDrawingPointerId) {
+              _activeDrawingPointerId = null;
               setState(() {
                 _isDrawingWithStylus = false;
                 _drawingPageIndex = null;

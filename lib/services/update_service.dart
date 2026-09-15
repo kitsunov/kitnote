@@ -24,7 +24,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.3';
+  static const String currentVersion = '1.0.4';
   static const String githubOwner = 'kitsunov';
   static const String githubRepo = 'kitnote';
   static const MethodChannel _channel = MethodChannel('com.kitnote.app/updater');

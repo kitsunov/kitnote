@@ -36,6 +36,7 @@ class NotebookModel {
     String? id,
     String? title,
     String? folderId,
+    bool clearFolderId = false,
     DateTime? createdAt,
     DateTime? updatedAt,
     int? coverColor,
@@ -48,7 +49,7 @@ class NotebookModel {
     return NotebookModel(
       id: id ?? this.id,
       title: title ?? this.title,
-      folderId: folderId ?? this.folderId,
+      folderId: clearFolderId ? null : (folderId ?? this.folderId),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       coverColor: coverColor ?? this.coverColor,
