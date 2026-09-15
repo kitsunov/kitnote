@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../models/notebook_model.dart';
 import '../../services/export_service.dart';
 
@@ -20,7 +21,9 @@ class NotebookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('d MMM yyyy, HH:mm', 'ru');
+    final strings = AppLocalizations.of(context).strings;
+    final locale = Localizations.localeOf(context).languageCode;
+    final dateFormat = DateFormat('d MMM yyyy, HH:mm', locale);
     final formattedDate = dateFormat.format(notebook.updatedAt);
     final coverColor = Color(notebook.coverColor);
 
@@ -142,23 +145,23 @@ class NotebookCard extends StatelessWidget {
                           constraints: const BoxConstraints(),
                           icon: const Icon(Icons.more_horiz, size: 20, color: Colors.grey),
                           itemBuilder: (context) => [
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'export',
                               child: Row(
                                 children: [
-                                  Icon(Icons.picture_as_pdf, size: 18, color: Colors.blue),
-                                  SizedBox(width: 8),
-                                  Text('Экспорт в PDF'),
+                                  const Icon(Icons.picture_as_pdf, size: 18, color: Colors.blue),
+                                  const SizedBox(width: 8),
+                                  Text(strings.exportPdf),
                                 ],
                               ),
                             ),
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'delete',
                               child: Row(
                                 children: [
-                                  Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('Удалить тетрадь', style: TextStyle(color: Colors.red)),
+                                  const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                  const SizedBox(width: 8),
+                                  Text(strings.deleteNotebook, style: const TextStyle(color: Colors.red)),
                                 ],
                               ),
                             ),
@@ -166,12 +169,12 @@ class NotebookCard extends StatelessWidget {
                           onSelected: (action) async {
                             if (action == 'export') {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Экспорт в PDF...')),
+                                SnackBar(content: Text('${strings.exportPdf}...')),
                               );
                               final file = await ExportService.exportNotebookToPdf(notebook);
                               if (file != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Сохранено: ${file.path}')),
+                                  SnackBar(content: Text(file.path)),
                                 );
                               }
                             } else if (action == 'delete') {
@@ -194,7 +197,7 @@ class NotebookCard extends StatelessWidget {
                           const SizedBox(width: 8),
                         ],
                         Text(
-                          '${notebook.pageCount} стр.',
+                          '${notebook.pageCount} ${strings.page.toLowerCase()}',
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
                       ],

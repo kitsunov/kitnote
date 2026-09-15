@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/app_strings.dart';
 import '../../models/page_template_model.dart';
 import '../../services/google_drive_service.dart';
 import '../../services/update_service.dart';
@@ -21,31 +23,65 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
-    // Check for updates silently on app startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForAppUpdates(silent: true);
     });
   }
 
   Future<void> _checkForAppUpdates({bool silent = false}) async {
-    final update = await UpdateService().checkForUpdates();
+    final update = await UpdateService.checkForUpdate();
     if (!mounted) return;
 
     if (update != null) {
       UpdateService.showUpdateDialog(context, update);
     } else if (!silent) {
+      final strings = AppLocalizations.of(context).strings;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('У вас установлена последняя версия KitNote (v1.0.0)'),
-          duration: Duration(seconds: 3),
+        SnackBar(
+          content: Text(strings.latestVersionInstalled),
+          duration: const Duration(seconds: 3),
         ),
       );
     }
   }
 
+  void _showLanguageDialog() {
+    final localeProvider = Provider.of<LocaleProvider>(context, listen: false);
+    final currentCode = localeProvider.locale?.languageCode ?? Localizations.localeOf(context).languageCode;
+    final strings = AppLocalizations.of(context).strings;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.language, color: Colors.blue),
+            const SizedBox(width: 8),
+            Text(strings.language),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AppLocalizations.supportedLocales.map((loc) {
+            final isSelected = loc.languageCode == currentCode;
+            return ListTile(
+              title: Text(AppLocalizations.getLanguageName(loc.languageCode)),
+              trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
+              onTap: () {
+                localeProvider.setLocale(loc);
+                Navigator.pop(ctx);
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final library = Provider.of<LibraryState>(context);
+    final strings = AppLocalizations.of(context).strings;
     final isTablet = MediaQuery.of(context).size.width >= 700;
 
     return Scaffold(
@@ -62,9 +98,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
               child: const Icon(Icons.auto_stories, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 10),
-            const Text(
-              'KitNote',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: -0.5),
+            Text(
+              strings.appTitle,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: -0.5),
             ),
           ],
         ),
@@ -77,7 +113,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: TextField(
               onChanged: (val) => library.setSearchQuery(val),
               decoration: InputDecoration(
-                hintText: 'Поиск конспектов...',
+                hintText: strings.searchHint,
                 hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 prefixIcon: const Icon(Icons.search, size: 18),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
@@ -94,7 +130,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           // Import PDF Button
           TextButton.icon(
             icon: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 20),
-            label: const Text('Импорт PDF', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
+            label: Text(strings.importPdf, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w600)),
             style: TextButton.styleFrom(
               backgroundColor: Colors.red.shade50,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -131,8 +167,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                   label: Text(
                     isConnected
-                        ? (isSyncing ? 'Синхронизация...' : 'Google Drive')
-                        : 'Войти в аккаунт',
+                        ? (isSyncing ? strings.syncing : strings.googleDrive)
+                        : strings.signIn,
                     style: TextStyle(
                       fontSize: 12,
                       color: isConnected ? Colors.green.shade800 : Colors.blue.shade800,
@@ -159,10 +195,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
 
+          // Language Switcher Button
+          IconButton(
+            icon: const Icon(Icons.language, color: Colors.blueGrey, size: 22),
+            tooltip: strings.language,
+            onPressed: _showLanguageDialog,
+          ),
+
           // Check Updates Button
           IconButton(
             icon: const Icon(Icons.system_update_alt, color: Colors.blueGrey, size: 22),
-            tooltip: 'Проверить обновления',
+            tooltip: strings.checkUpdates,
             onPressed: () => _checkForAppUpdates(silent: false),
           ),
           const SizedBox(width: 8),
@@ -178,13 +221,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Expanded(
             child: library.isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _buildNotebooksGrid(context, library),
+                : _buildNotebooksGrid(context, library, strings),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
-        label: const Text('Новая тетрадь'),
+        label: Text(strings.newNotebook),
         backgroundColor: Colors.blue.shade600,
         foregroundColor: Colors.white,
         onPressed: () {
@@ -216,7 +259,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _buildNotebooksGrid(BuildContext context, LibraryState library) {
+  Widget _buildNotebooksGrid(BuildContext context, LibraryState library, AppStrings strings) {
     final notebooks = library.filteredNotebooks;
 
     if (notebooks.isEmpty) {
@@ -227,12 +270,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             Icon(Icons.menu_book, size: 64, color: Colors.grey.shade300),
             const SizedBox(height: 16),
             Text(
-              'Нет созданных блокнотов',
+              strings.noNotebooks,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 8),
             Text(
-              'Создайте блокнот с любой разметкой или импортируйте большой PDF',
+              strings.noNotebooksSubtitle,
               style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
             ),
           ],

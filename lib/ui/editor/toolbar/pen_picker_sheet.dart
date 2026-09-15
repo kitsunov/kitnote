@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../../../models/tool_type.dart';
 import '../../../state/notebook_editor_state.dart';
 
@@ -9,6 +10,8 @@ class PenPickerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context).strings;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       decoration: const BoxDecoration(
@@ -22,9 +25,9 @@ class PenPickerSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Настройка пера',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Text(
+                strings.penSettings,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               IconButton(
                 icon: const Icon(Icons.close),
@@ -33,13 +36,13 @@ class PenPickerSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const Text('Тип пера', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+          Text(strings.penType, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
           const SizedBox(height: 10),
           Row(
             children: [
               _PenTypeCard(
-                title: 'Шариковая',
-                subtitle: 'Равномерная линия',
+                title: strings.ballpointPen,
+                subtitle: strings.penBallpointDesc,
                 icon: Icons.edit,
                 isSelected: state.activeTool == ToolType.ballpointPen,
                 onTap: () {
@@ -49,8 +52,8 @@ class PenPickerSheet extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               _PenTypeCard(
-                title: 'Перьевая',
-                subtitle: 'Чувствительна к нажиму',
+                title: strings.fountainPen,
+                subtitle: strings.penFountainDesc,
                 icon: Icons.gesture,
                 isSelected: state.activeTool == ToolType.fountainPen,
                 onTap: () {
@@ -60,8 +63,8 @@ class PenPickerSheet extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               _PenTypeCard(
-                title: 'Кисть',
-                subtitle: 'Плавные штрихи',
+                title: strings.brushPen,
+                subtitle: strings.penBrushDesc,
                 icon: Icons.brush,
                 isSelected: state.activeTool == ToolType.brushPen,
                 onTap: () {
@@ -75,7 +78,7 @@ class PenPickerSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Толщина линии', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+              Text(strings.strokeThickness, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
               Text('${state.activeStrokeWidth.toStringAsFixed(1)} pt', style: const TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),

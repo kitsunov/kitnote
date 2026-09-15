@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../../../engine/palm_rejection_manager.dart';
 import '../../../models/tool_type.dart';
 import '../../../state/notebook_editor_state.dart';
@@ -25,6 +26,7 @@ class EditorToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeTool = state.activeTool;
+    final strings = AppLocalizations.of(context).strings;
 
     return Container(
       height: 56,
@@ -45,7 +47,7 @@ class EditorToolbar extends StatelessWidget {
           // 1. Tool selection group
           CustomIconButton(
             icon: Icons.edit,
-            tooltip: 'Ручка (нажмите повторно для настроек)',
+            tooltip: '${strings.pen} (${strings.penSettings})',
             isSelected: activeTool.isPen,
             onPressed: () {
               if (activeTool.isPen) {
@@ -61,13 +63,13 @@ class EditorToolbar extends StatelessWidget {
           ),
           CustomIconButton(
             icon: Icons.brush_outlined,
-            tooltip: 'Текстовыделитель',
+            tooltip: strings.highlighter,
             isSelected: activeTool == ToolType.highlighter,
             onPressed: () => state.setTool(ToolType.highlighter),
           ),
           CustomIconButton(
             icon: Icons.cleaning_services_outlined,
-            tooltip: 'Ластик (переключение: штриховой / пиксельный)',
+            tooltip: '${strings.strokeEraser} / ${strings.pixelEraser}',
             isSelected: activeTool.isEraser,
             onPressed: () {
               if (activeTool == ToolType.strokeEraser) {
@@ -79,28 +81,28 @@ class EditorToolbar extends StatelessWidget {
           ),
           CustomIconButton(
             icon: Icons.gesture,
-            tooltip: 'Лассо (выделение и перемещение)',
+            tooltip: strings.lasso,
             isSelected: activeTool == ToolType.lasso,
             onPressed: () => state.setTool(ToolType.lasso),
           ),
           CustomIconButton(
             icon: Icons.straighten,
-            tooltip: 'Линейка',
+            tooltip: strings.ruler,
             isSelected: state.isRulerEnabled,
             onPressed: () => state.toggleRuler(),
           ),
           CustomIconButton(
             icon: Icons.title,
-            tooltip: 'Печатный текст',
+            tooltip: strings.text,
             isSelected: activeTool == ToolType.textBox,
             onPressed: () {
               state.setTool(ToolType.textBox);
-              state.addTextElement('Нажмите для ввода текста...', const Offset(150, 200));
+              state.addTextElement('${strings.text}...', const Offset(150, 200));
             },
           ),
           CustomIconButton(
             icon: Icons.add_photo_alternate_outlined,
-            tooltip: 'Вставить фото',
+            tooltip: strings.photo,
             onPressed: () async {
               final result = await FilePicker.platform.pickFiles(type: FileType.image);
               if (result != null && result.files.isNotEmpty && result.files.first.path != null) {
@@ -124,12 +126,12 @@ class EditorToolbar extends StatelessWidget {
           // Full color picker trigger
           IconButton(
             icon: const Icon(Icons.palette_outlined, size: 20, color: Colors.blueGrey),
-            tooltip: 'Палитра цветов',
+            tooltip: strings.colorPalette,
             onPressed: () {
               showDialog(
                 context: context,
                 builder: (ctx) => AlertDialog(
-                  title: const Text('Выберите цвет'),
+                  title: Text(strings.selectColor),
                   content: SingleChildScrollView(
                     child: ColorPicker(
                       pickerColor: Color(state.activeColor),
@@ -140,7 +142,7 @@ class EditorToolbar extends StatelessWidget {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Готово'),
+                      child: Text(strings.done),
                     ),
                   ],
                 ),
@@ -153,13 +155,13 @@ class EditorToolbar extends StatelessWidget {
           // 3. Undo / Redo
           CustomIconButton(
             icon: Icons.undo,
-            tooltip: 'Отменить',
+            tooltip: strings.undo,
             onPressed: state.canUndo ? () => state.undo() : null,
             color: state.canUndo ? Colors.black87 : Colors.grey.shade300,
           ),
           CustomIconButton(
             icon: Icons.redo,
-            tooltip: 'Повторить',
+            tooltip: strings.redo,
             onPressed: state.canRedo ? () => state.redo() : null,
             color: state.canRedo ? Colors.black87 : Colors.grey.shade300,
           ),
@@ -197,8 +199,8 @@ class EditorToolbar extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     state.palmRejection.mode == PalmRejectionMode.stylusOnly
-                        ? 'Palm Rejection: ON'
-                        : 'Palm Rejection: OFF',
+                        ? strings.palmRejectionOn
+                        : strings.palmRejectionOff,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -258,7 +260,7 @@ class EditorToolbar extends StatelessWidget {
                     icon: const Icon(Icons.add, size: 18, color: Colors.blue),
                     padding: const EdgeInsets.only(left: 4),
                     constraints: const BoxConstraints(),
-                    tooltip: 'Добавить страницу',
+                    tooltip: strings.addPage,
                     onPressed: () => state.addNewPage(),
                   ),
                 ],
@@ -271,7 +273,7 @@ class EditorToolbar extends StatelessWidget {
           // 6. Split Screen Toggle Button
           CustomIconButton(
             icon: Icons.vertical_split_outlined,
-            tooltip: isSplitActive ? 'Закрыть разделение экрана' : 'Открыть 2 тетради (Split-Screen)',
+            tooltip: strings.splitScreen,
             isSelected: isSplitActive,
             selectedColor: Colors.purple,
             onPressed: onToggleSplitScreen,

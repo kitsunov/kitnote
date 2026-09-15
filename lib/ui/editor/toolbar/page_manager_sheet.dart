@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../../../state/notebook_editor_state.dart';
 import '../canvas/paper_grid_painter.dart';
 
@@ -11,6 +12,7 @@ class PageManagerSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final notebook = state.notebook;
     final pages = notebook.pages;
+    final strings = AppLocalizations.of(context).strings;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.75,
@@ -27,14 +29,14 @@ class PageManagerSheet extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Страницы (${pages.length})',
+                '${strings.page} (${pages.length})',
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               Row(
                 children: [
                   ElevatedButton.icon(
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Добавить страницу'),
+                    label: Text(strings.addPage),
                     style: ElevatedButton.styleFrom(
                       elevation: 0,
                       backgroundColor: Colors.blue.shade50,
@@ -129,7 +131,7 @@ class PageManagerSheet extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'Стр. ${index + 1}',
+                            '${strings.page} ${index + 1}',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
@@ -140,14 +142,14 @@ class PageManagerSheet extends StatelessWidget {
                             icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
                             padding: EdgeInsets.zero,
                             itemBuilder: (context) => [
-                              const PopupMenuItem(
+                              PopupMenuItem(
                                 value: 'duplicate',
-                                child: Text('Дублировать страницу'),
+                                child: Text(strings.duplicatePage),
                               ),
                               if (pages.length > 1)
-                                const PopupMenuItem(
+                                PopupMenuItem(
                                   value: 'delete',
-                                  child: Text('Удалить страницу', style: TextStyle(color: Colors.red)),
+                                  child: Text(strings.deletePage, style: const TextStyle(color: Colors.red)),
                                 ),
                             ],
                             onSelected: (action) {

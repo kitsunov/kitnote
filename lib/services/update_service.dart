@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/l10n/app_localizations.dart';
 
 class UpdateInfo {
   final String tagName;
@@ -32,92 +33,83 @@ class UpdateService {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  /// Checks GitHub Releases for new APK versions
-  Future<UpdateInfo?> checkForUpdates() async {
+  /// Checks GitHub releases for latest release
+  static Future<UpdateInfo?> checkForUpdate() async {
     try {
       final url = Uri.parse('https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest');
-      final response = await http.get(
-        url,
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'KitNote-App',
-        },
-      ).timeout(const Duration(seconds: 8));
+      final response = await http.get(url, headers: {
+        'Accept': 'application/vnd.github.v3+json',
+      }).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200) {
-        debugPrint('[UpdateService] GitHub releases response code: ${response.statusCode}');
-        return null;
-      }
+      if (response.statusCode != 200) return null;
 
-      final Map<String, dynamic> data = jsonDecode(response.body);
-      final String tagName = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
-      final String title = data['name'] as String? ?? 'Новая версия';
-      final String changelog = data['body'] as String? ?? '';
-      final String releaseUrl = data['html_url'] as String? ?? 'https://github.com/$githubOwner/$githubRepo/releases';
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final String rawTag = data['tag_name'] as String? ?? '';
+      final String latestTag = rawTag.startsWith('v') ? rawTag.substring(1) : rawTag;
 
-      // Find APK download asset
-      String? apkUrl;
-      final List? assets = data['assets'] as List?;
-      if (assets != null) {
+      if (_isVersionNewer(latestTag, currentVersion)) {
+        final List<dynamic> assets = data['assets'] as List<dynamic>? ?? [];
+        String? apkUrl;
         for (final asset in assets) {
-          final name = asset['name'] as String? ?? '';
+          final name = (asset['name'] as String? ?? '').toLowerCase();
           if (name.endsWith('.apk')) {
             apkUrl = asset['browser_download_url'] as String?;
             break;
           }
         }
-      }
 
-      if (_isVersionGreater(tagName, currentVersion)) {
+        final String title = data['name'] as String? ?? 'Новая версия';
+        final String changelog = data['body'] as String? ?? '';
+        final String releaseUrl = data['html_url'] as String? ?? 'https://github.com/$githubOwner/$githubRepo/releases';
+
         return UpdateInfo(
-          tagName: tagName,
+          tagName: latestTag,
           title: title,
           changelog: changelog,
           releaseUrl: releaseUrl,
           apkDownloadUrl: apkUrl,
         );
       }
-
       return null;
     } catch (e) {
-      debugPrint('[UpdateService] Error checking for updates: $e');
+      debugPrint('KitNote update check failed: $e');
       return null;
     }
   }
 
-  /// Compare semver version strings (e.g. 1.0.1 > 1.0.0)
-  bool _isVersionGreater(String remote, String local) {
+  static bool _isVersionNewer(String latest, String current) {
     try {
-      final rParts = remote.split('.').map(int.parse).toList();
-      final lParts = local.split('.').map(int.parse).toList();
+      final latestParts = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final currentParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
 
       for (int i = 0; i < 3; i++) {
-        final r = i < rParts.length ? rParts[i] : 0;
-        final l = i < lParts.length ? lParts[i] : 0;
-        if (r > l) return true;
-        if (r < l) return false;
+        final l = i < latestParts.length ? latestParts[i] : 0;
+        final c = i < currentParts.length ? currentParts[i] : 0;
+        if (l > c) return true;
+        if (l < c) return false;
       }
       return false;
-    } catch (e) {
-      return remote != local;
+    } catch (_) {
+      return false;
     }
   }
 
   /// Downloads APK directly inside app and triggers native Android package installer
   static Future<void> downloadAndInstall(BuildContext context, String apkUrl) async {
     final ValueNotifier<double> progressNotifier = ValueNotifier<double>(0.0);
-    final ValueNotifier<String> statusNotifier = ValueNotifier<String>('Подготовка к загрузке...');
+    final ValueNotifier<String> statusNotifier = ValueNotifier<String>('Preparing...');
+    final strings = AppLocalizations.of(context).strings;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.downloading, color: Colors.blue, size: 24),
-            SizedBox(width: 10),
-            Text('Обновление KitNote', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Icon(Icons.downloading, color: Colors.blue, size: 24),
+            const SizedBox(width: 10),
+            Text(strings.downloadUpdate, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
@@ -208,6 +200,7 @@ class UpdateService {
 
   /// Show interactive update dialog
   static void showUpdateDialog(BuildContext context, UpdateInfo info) {
+    final strings = AppLocalizations.of(context).strings;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -227,8 +220,8 @@ class UpdateService {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Доступно обновление', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('Версия v${info.tagName}', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                  Text(strings.updateAvailable, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text('v${info.tagName}', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                 ],
               ),
             ),
@@ -242,7 +235,7 @@ class UpdateService {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (info.changelog.isNotEmpty) ...[
-                  const Text('Что нового:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  Text(strings.whatsNew, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                   const SizedBox(height: 6),
                   Container(
                     width: double.infinity,
@@ -259,10 +252,6 @@ class UpdateService {
                   ),
                   const SizedBox(height: 12),
                 ],
-                const Text(
-                  'Нажмите «Обновить сейчас», чтобы загрузить и установить обновление без потери заметок и настроек.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
               ],
             ),
           ),
@@ -270,7 +259,7 @@ class UpdateService {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Позже'),
+            child: Text(strings.later),
           ),
           OutlinedButton(
             onPressed: () async {
@@ -284,7 +273,7 @@ class UpdateService {
           if (info.apkDownloadUrl != null)
             ElevatedButton.icon(
               icon: const Icon(Icons.download, size: 18),
-              label: const Text('Обновить сейчас'),
+              label: Text(strings.updateNow),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade600,
                 foregroundColor: Colors.white,

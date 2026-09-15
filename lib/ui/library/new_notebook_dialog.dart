@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../models/folder_model.dart';
 import '../../models/page_template_model.dart';
 
@@ -26,7 +27,7 @@ class NewNotebookDialog extends StatefulWidget {
 }
 
 class _NewNotebookDialogState extends State<NewNotebookDialog> {
-  final TextEditingController _titleController = TextEditingController(text: 'Новый блокнот');
+  late final TextEditingController _titleController;
   late String? _selectedFolderId;
   int _selectedCoverColor = AppColors.coverColors.first.toARGB32();
   PaperTemplateType _selectedTemplate = PaperTemplateType.narrowRuled;
@@ -35,11 +36,22 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
   @override
   void initState() {
     super.initState();
+    _titleController = TextEditingController();
     _selectedFolderId = widget.initialFolderId;
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_titleController.text.isEmpty) {
+      _titleController.text = AppLocalizations.of(context).strings.newNotebook;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context).strings;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
@@ -50,19 +62,19 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Создать блокнот',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              Text(
+                strings.createNotebookTitle,
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
 
               // Title input
               TextField(
                 controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Название тетради',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.edit_note),
+                decoration: InputDecoration(
+                  labelText: strings.notebookTitleLabel,
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.edit_note),
                 ),
               ),
               const SizedBox(height: 16),
@@ -71,13 +83,13 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
               if (widget.folders.isNotEmpty) ...[
                 DropdownButtonFormField<String?>(
                   initialValue: _selectedFolderId,
-                  decoration: const InputDecoration(
-                    labelText: 'Папка',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.folder_outlined),
+                  decoration: InputDecoration(
+                    labelText: strings.folderLabel,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.folder_outlined),
                   ),
                   items: [
-                    const DropdownMenuItem(value: null, child: Text('Без папки (Главная)')),
+                    DropdownMenuItem(value: null, child: Text(strings.noFolderRoot)),
                     ...widget.folders.map((f) => DropdownMenuItem(value: f.id, child: Text(f.name))),
                   ],
                   onChanged: (val) => setState(() => _selectedFolderId = val),
@@ -86,7 +98,7 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
               ],
 
               // Cover Color Picker
-              const Text('Цвет обложки', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+              Text(strings.coverColor, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
               const SizedBox(height: 8),
               Row(
                 children: AppColors.coverColors.map((col) {
@@ -113,50 +125,62 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
               const SizedBox(height: 16),
 
               // Paper Template Picker
-              const Text('Шаблон разметки страниц', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+              Text(strings.paperTemplate, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
                   _TemplateChip(
-                    label: 'В линейку (узкая)',
+                    label: strings.tplNarrowRuled,
                     icon: Icons.notes,
                     isSelected: _selectedTemplate == PaperTemplateType.narrowRuled,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.narrowRuled),
                   ),
                   _TemplateChip(
-                    label: 'В клетку (5мм)',
+                    label: strings.tplWideRuled,
+                    icon: Icons.notes,
+                    isSelected: _selectedTemplate == PaperTemplateType.wideRuled,
+                    onTap: () => setState(() => _selectedTemplate = PaperTemplateType.wideRuled),
+                  ),
+                  _TemplateChip(
+                    label: strings.tplGridSmall,
                     icon: Icons.grid_on,
                     isSelected: _selectedTemplate == PaperTemplateType.gridSmall,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.gridSmall),
                   ),
                   _TemplateChip(
-                    label: 'В точку (Bullet)',
+                    label: strings.tplGridLarge,
+                    icon: Icons.grid_on,
+                    isSelected: _selectedTemplate == PaperTemplateType.gridLarge,
+                    onTap: () => setState(() => _selectedTemplate = PaperTemplateType.gridLarge),
+                  ),
+                  _TemplateChip(
+                    label: strings.tplDotGrid,
                     icon: Icons.grain,
                     isSelected: _selectedTemplate == PaperTemplateType.dotGrid,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.dotGrid),
                   ),
                   _TemplateChip(
-                    label: 'Корнелл (Конспекты)',
+                    label: strings.tplCornell,
                     icon: Icons.view_agenda_outlined,
                     isSelected: _selectedTemplate == PaperTemplateType.cornell,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.cornell),
                   ),
                   _TemplateChip(
-                    label: 'Чистый лист',
+                    label: strings.tplBlank,
                     icon: Icons.crop_portrait,
                     isSelected: _selectedTemplate == PaperTemplateType.blank,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.blank),
                   ),
                   _TemplateChip(
-                    label: 'Недельный планер',
+                    label: strings.tplWeeklyPlanner,
                     icon: Icons.calendar_view_week,
                     isSelected: _selectedTemplate == PaperTemplateType.weeklyPlanner,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.weeklyPlanner),
                   ),
                   _TemplateChip(
-                    label: 'Нотный стан',
+                    label: strings.tplMusicSheet,
                     icon: Icons.music_note,
                     isSelected: _selectedTemplate == PaperTemplateType.musicSheet,
                     onTap: () => setState(() => _selectedTemplate = PaperTemplateType.musicSheet),
@@ -166,36 +190,36 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
               const SizedBox(height: 16),
 
               // Paper Color Theme Picker
-              const Text('Цвет бумаги', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+              Text(strings.paperColor, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
               const SizedBox(height: 8),
               Row(
                 children: [
                   _PaperColorOption(
-                    label: 'Белая',
+                    label: strings.colWhite,
                     color: const Color(0xFFFFFFFF),
                     isSelected: _selectedPaperTheme == PaperColorTheme.white,
                     onTap: () => setState(() => _selectedPaperTheme = PaperColorTheme.white),
                   ),
                   _PaperColorOption(
-                    label: 'Кремовая',
+                    label: strings.colIvory,
                     color: const Color(0xFFFAF7EE),
                     isSelected: _selectedPaperTheme == PaperColorTheme.ivory,
                     onTap: () => setState(() => _selectedPaperTheme = PaperColorTheme.ivory),
                   ),
                   _PaperColorOption(
-                    label: 'Сепия',
+                    label: strings.colSepia,
                     color: const Color(0xFFF4ECE1),
                     isSelected: _selectedPaperTheme == PaperColorTheme.sepia,
                     onTap: () => setState(() => _selectedPaperTheme = PaperColorTheme.sepia),
                   ),
                   _PaperColorOption(
-                    label: 'Мята',
+                    label: strings.colMint,
                     color: const Color(0xFFEFF4F0),
                     isSelected: _selectedPaperTheme == PaperColorTheme.softSage,
                     onTap: () => setState(() => _selectedPaperTheme = PaperColorTheme.softSage),
                   ),
                   _PaperColorOption(
-                    label: 'Темная',
+                    label: strings.colDark,
                     color: const Color(0xFF181A20),
                     isSelected: _selectedPaperTheme == PaperColorTheme.dark,
                     onTap: () => setState(() => _selectedPaperTheme = PaperColorTheme.dark),
@@ -210,7 +234,7 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Отмена'),
+                    child: Text(strings.cancel),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
@@ -232,7 +256,7 @@ class _NewNotebookDialogState extends State<NewNotebookDialog> {
                         Navigator.pop(context);
                       }
                     },
-                    child: const Text('Создать'),
+                    child: Text(strings.create),
                   ),
                 ],
               ),

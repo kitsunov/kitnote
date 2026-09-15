@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../state/library_state.dart';
 
 class FolderTreeView extends StatelessWidget {
@@ -8,6 +9,7 @@ class FolderTreeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = Provider.of<LibraryState>(context);
+    final strings = AppLocalizations.of(context).strings;
     final selectedFolderId = library.selectedFolderId;
 
     return Container(
@@ -25,9 +27,9 @@ class FolderTreeView extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Папки',
-                  style: TextStyle(
+                Text(
+                  strings.folders,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
@@ -35,7 +37,7 @@ class FolderTreeView extends StatelessWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.create_new_folder_outlined, size: 20, color: Colors.blue),
-                  tooltip: 'Создать папку',
+                  tooltip: strings.newFolder,
                   onPressed: () => _showCreateFolderDialog(context, library),
                 ),
               ],
@@ -44,7 +46,7 @@ class FolderTreeView extends StatelessWidget {
 
           // "All Notebooks" item
           _FolderListItem(
-            title: 'Все тетради',
+            title: strings.allNotebooks,
             count: library.notebooks.length,
             icon: Icons.auto_stories,
             color: Colors.blue,
@@ -82,22 +84,23 @@ class FolderTreeView extends StatelessWidget {
 
   void _showCreateFolderDialog(BuildContext context, LibraryState library) {
     final textController = TextEditingController();
+    final strings = AppLocalizations.of(context).strings;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Новая папка'),
+        title: Text(strings.newFolder),
         content: TextField(
           controller: textController,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Название папки (например: Физика)',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            hintText: strings.folderNameHint,
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Отмена'),
+            child: Text(strings.cancel),
           ),
           ElevatedButton(
             onPressed: () {
@@ -107,7 +110,7 @@ class FolderTreeView extends StatelessWidget {
               }
               Navigator.pop(ctx);
             },
-            child: const Text('Создать'),
+            child: Text(strings.create),
           ),
         ],
       ),
