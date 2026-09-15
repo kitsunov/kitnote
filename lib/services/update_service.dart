@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateInfo {
@@ -23,6 +26,7 @@ class UpdateService {
   static const String currentVersion = '1.0.0';
   static const String githubOwner = 'kitsunov';
   static const String githubRepo = 'kitnote';
+  static const MethodChannel _channel = MethodChannel('com.kitnote.app/updater');
 
   static final UpdateService _instance = UpdateService._internal();
   factory UpdateService() => _instance;
@@ -99,6 +103,109 @@ class UpdateService {
     }
   }
 
+  /// Downloads APK directly inside app and triggers native Android package installer
+  static Future<void> downloadAndInstall(BuildContext context, String apkUrl) async {
+    final ValueNotifier<double> progressNotifier = ValueNotifier<double>(0.0);
+    final ValueNotifier<String> statusNotifier = ValueNotifier<String>('Подготовка к загрузке...');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.downloading, color: Colors.blue, size: 24),
+            SizedBox(width: 10),
+            Text('Обновление KitNote', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ValueListenableBuilder<String>(
+              valueListenable: statusNotifier,
+              builder: (context, status, _) => Text(
+                status,
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ValueListenableBuilder<double>(
+              valueListenable: progressNotifier,
+              builder: (context, progress, _) => Column(
+                children: [
+                  LinearProgressIndicator(
+                    value: progress > 0 ? progress : null,
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      progress > 0 ? '${(progress * 100).toInt()}%' : '',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final client = http.Client();
+      final request = http.Request('GET', Uri.parse(apkUrl));
+      final response = await client.send(request);
+
+      final contentLength = response.contentLength ?? 0;
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/kitnote_update.apk');
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      final sink = file.openWrite();
+      int downloaded = 0;
+
+      await for (final chunk in response.stream) {
+        downloaded += chunk.length;
+        sink.add(chunk);
+        if (contentLength > 0) {
+          progressNotifier.value = downloaded / contentLength;
+          final downloadedMB = (downloaded / (1024 * 1024)).toStringAsFixed(1);
+          final totalMB = (contentLength / (1024 * 1024)).toStringAsFixed(1);
+          statusNotifier.value = 'Загрузка: $downloadedMB МБ из $totalMB МБ';
+        }
+      }
+
+      await sink.flush();
+      await sink.close();
+
+      if (context.mounted) {
+        Navigator.pop(context); // Close progress dialog
+      }
+
+      statusNotifier.value = 'Запуск установщика...';
+
+      // Trigger native package installer
+      if (Platform.isAndroid) {
+        await _channel.invokeMethod('installApk', {'filePath': file.path});
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка обновления: $e')),
+        );
+      }
+    }
+  }
+
   /// Show interactive update dialog
   static void showUpdateDialog(BuildContext context, UpdateInfo info) {
     showDialog(
@@ -153,7 +260,7 @@ class UpdateService {
                   const SizedBox(height: 12),
                 ],
                 const Text(
-                  'Вы можете скачать APK напрямую или перейти на страницу релиза GitHub.',
+                  'Нажмите «Обновить сейчас», чтобы загрузить и установить обновление без потери заметок и настроек.',
                   style: TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ],
@@ -172,21 +279,19 @@ class UpdateService {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               }
             },
-            child: const Text('Открыть GitHub'),
+            child: const Text('GitHub'),
           ),
           if (info.apkDownloadUrl != null)
             ElevatedButton.icon(
               icon: const Icon(Icons.download, size: 18),
-              label: const Text('Скачать APK'),
+              label: const Text('Обновить сейчас'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade600,
                 foregroundColor: Colors.white,
               ),
-              onPressed: () async {
-                final uri = Uri.parse(info.apkDownloadUrl!);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                }
+              onPressed: () {
+                Navigator.pop(ctx);
+                downloadAndInstall(context, info.apkDownloadUrl!);
               },
             ),
         ],

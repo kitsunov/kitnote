@@ -1,6 +1,6 @@
 # KitNote 📝✨
 
-> **Pro Note-Taking & Large PDF Annotation App for Android** (Freenotes Alternative)  
+> **Pro Note-Taking & Large PDF Annotation App for Android**  
 > Полнофункциональное приложение для рукописных конспектов, разметки сверхбольших PDF, работы с двумя тетрадями одновременно (Split-Screen) и аппаратной защитой от ладони (Palm Rejection).
 
 ---
