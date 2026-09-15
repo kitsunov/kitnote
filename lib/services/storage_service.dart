@@ -32,6 +32,15 @@ class StorageService {
     return dir;
   }
 
+  Future<Directory> get pdfsDir async {
+    final base = await baseDir;
+    final dir = Directory('${base.path}/pdfs');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
   Future<File> get _foldersFile async {
     final base = await baseDir;
     return File('${base.path}/folders.json');
@@ -139,6 +148,11 @@ class StorageService {
       final file = File('${dir.path}/$notebookId.json');
       if (await file.exists()) {
         await file.delete();
+      }
+      final pdfDir = await pdfsDir;
+      final pdfFile = File('${pdfDir.path}/$notebookId.pdf');
+      if (await pdfFile.exists()) {
+        await pdfFile.delete();
       }
     } catch (e) {
       debugPrint('[StorageService] Error deleting notebook $notebookId: $e');

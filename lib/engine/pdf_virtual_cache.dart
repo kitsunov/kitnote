@@ -34,9 +34,10 @@ class PdfVirtualCache {
   PdfVirtualCache._internal();
 
   // Max cached rendered page textures in memory to strictly prevent OOM on 1000+ page PDFs
-  final int maxCacheSize = 6;
+  final int maxCacheSize = 12;
   final LinkedHashMap<String, Uint8List> _cache = LinkedHashMap();
-  final Set<String> _pendingRenders = {};
+  final Map<String, Future<Uint8List?>> _inFlightRenders = {};
+  final LinkedHashMap<String, Uint8List> _docBytesCache = LinkedHashMap();
 
   Uint8List? getPage(PdfPageRenderRequest request) {
     final key = request.cacheKey;
@@ -57,26 +58,33 @@ class PdfVirtualCache {
       // Evict oldest page
       final oldestKey = _cache.keys.first;
       _cache.remove(oldestKey);
-      debugPrint('[PdfVirtualCache] Evicted cached page: $oldestKey to free memory');
+      debugPrint('[PdfVirtualCache] Evicted cached page: $oldestKey');
     }
     _cache[key] = imageBytes;
   }
 
-  bool isRendering(PdfPageRenderRequest request) =>
-      _pendingRenders.contains(request.cacheKey);
+  Future<Uint8List?> _loadDocBytes(String pdfPath) async {
+    if (_docBytesCache.containsKey(pdfPath)) {
+      final bytes = _docBytesCache.remove(pdfPath)!;
+      _docBytesCache[pdfPath] = bytes;
+      return bytes;
+    }
+    final file = File(pdfPath);
+    if (!await file.exists()) return null;
+    final bytes = await file.readAsBytes();
+    if (_docBytesCache.length >= 2) {
+      _docBytesCache.remove(_docBytesCache.keys.first);
+    }
+    _docBytesCache[pdfPath] = bytes;
+    return bytes;
+  }
 
-  void markRendering(PdfPageRenderRequest request) =>
-      _pendingRenders.add(request.cacheKey);
-
-  void clearRendering(PdfPageRenderRequest request) =>
-      _pendingRenders.remove(request.cacheKey);
-
-  /// Lazily rasterizes and caches a specific PDF page using native platform rendering
+  /// Lazily rasterizes and caches a specific PDF page using native platform rendering with in-flight deduplication
   Future<Uint8List?> renderPage(
     String pdfPath,
     int pageIndex, {
     double dpi = 150.0,
-  }) async {
+  }) {
     final request = PdfPageRenderRequest(
       pdfPath: pdfPath,
       pageIndex: pageIndex,
@@ -84,48 +92,50 @@ class PdfVirtualCache {
     );
 
     final cached = getPage(request);
-    if (cached != null) return cached;
+    if (cached != null) return Future.value(cached);
 
-    if (isRendering(request)) {
-      // Wait briefly if a render is already in flight for this exact page
-      for (int i = 0; i < 20; i++) {
-        await Future.delayed(const Duration(milliseconds: 50));
-        final again = getPage(request);
-        if (again != null) return again;
-        if (!isRendering(request)) break;
-      }
+    if (_inFlightRenders.containsKey(request.cacheKey)) {
+      return _inFlightRenders[request.cacheKey]!;
     }
 
-    markRendering(request);
-    try {
-      final file = File(pdfPath);
-      if (!await file.exists()) return null;
+    final future = _renderPageInternal(request);
+    _inFlightRenders[request.cacheKey] = future;
+    return future;
+  }
 
-      final docBytes = await file.readAsBytes();
-      await for (final raster in Printing.raster(docBytes, pages: [pageIndex], dpi: dpi)) {
+  Future<Uint8List?> _renderPageInternal(PdfPageRenderRequest request) async {
+    try {
+      final docBytes = await _loadDocBytes(request.pdfPath);
+      if (docBytes == null || docBytes.isEmpty) {
+        debugPrint('[PdfVirtualCache] PDF file not found or empty: ${request.pdfPath}');
+        return null;
+      }
+
+      await for (final raster in Printing.raster(docBytes, pages: [request.pageIndex], dpi: request.scale)) {
         final pngBytes = await raster.toPng();
         putPage(request, pngBytes);
         return pngBytes;
       }
     } catch (e) {
-      debugPrint('[PdfVirtualCache] Error rendering page $pageIndex of $pdfPath: $e');
+      debugPrint('[PdfVirtualCache] Error rendering page ${request.pageIndex} of ${request.pdfPath}: $e');
     } finally {
-      clearRendering(request);
+      _inFlightRenders.remove(request.cacheKey);
     }
     return null;
   }
 
-  /// Fast scanner that inspects PDF binary bytes for the total page count without heavy DOM parsing
+  /// Fast scanner that inspects PDF binary bytes for the total page count with multi-strategy fallbacks
   static int getPdfPageCountFromBytes(Uint8List bytes) {
     try {
-      int maxCount = 1;
+      int maxCount = 0;
       final len = bytes.length;
-      final target = [47, 67, 111, 117, 110, 116]; // '/Count'
+      final countTarget = [47, 67, 111, 117, 110, 116]; // '/Count'
 
+      // Strategy 1: Scan for /Count integers in page dictionary
       for (int i = 0; i < len - 10; i++) {
         bool match = true;
         for (int j = 0; j < 6; j++) {
-          if (bytes[i + j] != target[j]) {
+          if (bytes[i + j] != countTarget[j]) {
             match = false;
             break;
           }
@@ -148,7 +158,46 @@ class PdfVirtualCache {
           i = k;
         }
       }
-      return maxCount;
+
+      if (maxCount > 0) {
+        return maxCount;
+      }
+
+      // Strategy 2: Fallback scanning for /Type /Page occurrences (ignoring /Type /Pages)
+      int pageTypeCount = 0;
+      final typePageTarget = [47, 84, 121, 112, 101]; // '/Type'
+      for (int i = 0; i < len - 16; i++) {
+        bool match = true;
+        for (int j = 0; j < 5; j++) {
+          if (bytes[i + j] != typePageTarget[j]) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          int k = i + 5;
+          while (k < len && (bytes[k] == 32 || bytes[k] == 9 || bytes[k] == 10 || bytes[k] == 13)) {
+            k++;
+          }
+          if (k + 5 < len &&
+              bytes[k] == 47 && // '/'
+              bytes[k + 1] == 80 && // 'P'
+              bytes[k + 2] == 97 && // 'a'
+              bytes[k + 3] == 103 && // 'g'
+              bytes[k + 4] == 101) { // 'e'
+            // Ensure not '/Pages'
+            if (k + 5 >= len || bytes[k + 5] != 115) { // 's'
+              pageTypeCount++;
+            }
+          }
+        }
+      }
+
+      if (pageTypeCount > 0) {
+        return pageTypeCount;
+      }
+
+      return 1;
     } catch (e) {
       debugPrint('[PdfVirtualCache] Page count parsing error: $e');
       return 1;
@@ -157,11 +206,13 @@ class PdfVirtualCache {
 
   void clearForPdf(String pdfPath) {
     _cache.removeWhere((key, _) => key.startsWith(pdfPath));
-    _pendingRenders.removeWhere((key) => key.startsWith(pdfPath));
+    _inFlightRenders.removeWhere((key, _) => key.startsWith(pdfPath));
+    _docBytesCache.remove(pdfPath);
   }
 
   void clearAll() {
     _cache.clear();
-    _pendingRenders.clear();
+    _inFlightRenders.clear();
+    _docBytesCache.clear();
   }
 }

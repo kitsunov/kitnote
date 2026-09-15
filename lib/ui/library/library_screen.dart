@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../models/page_template_model.dart';
-import '../../services/google_drive_service.dart';
 import '../../services/update_service.dart';
 import '../../state/library_state.dart';
 import 'folder_tree_view.dart';
@@ -143,57 +142,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
           const SizedBox(width: 8),
-
-          // Google Drive Sync Button
-          Consumer<LibraryState>(
-            builder: (context, lib, _) {
-              final drive = lib.googleDrive;
-              final isConnected = drive.isSignedIn;
-              final isSyncing = drive.status == SyncStatus.syncing;
-
-              return Container(
-                margin: const EdgeInsets.only(right: 8),
-                child: OutlinedButton.icon(
-                  icon: isSyncing
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          Icons.cloud_sync,
-                          size: 18,
-                          color: isConnected ? Colors.green.shade600 : Colors.blue.shade600,
-                        ),
-                  label: Text(
-                    isConnected
-                        ? (isSyncing ? strings.syncing : strings.googleDrive)
-                        : strings.signIn,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isConnected ? Colors.green.shade800 : Colors.blue.shade800,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    side: BorderSide(
-                      color: isConnected ? Colors.green.shade200 : Colors.blue.shade200,
-                    ),
-                  ),
-                  onPressed: () async {
-                    if (!isConnected) {
-                      final success = await drive.signIn();
-                      if (success) {
-                        lib.triggerSync();
-                      }
-                    } else {
-                      lib.triggerSync();
-                    }
-                  },
-                ),
-              );
-            },
-          ),
 
           // Language Switcher Button
           IconButton(

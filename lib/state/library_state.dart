@@ -103,17 +103,30 @@ class LibraryState extends ChangeNotifier {
 
       final path = result.files.single.path;
       final name = result.files.single.name;
-      if (path == null) return null;
+      final rawBytes = result.files.single.bytes;
+      if (path == null && rawBytes == null) return null;
 
       final id = const Uuid().v4();
-      final title = name.replaceAll('.pdf', '');
+      final title = name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+
+      // Ensure file is copied to permanent app storage
+      final pdfsDir = await _storage.pdfsDir;
+      final permanentPdfPath = '${pdfsDir.path}/$id.pdf';
+      final targetFile = File(permanentPdfPath);
+
+      if (path != null && await File(path).exists()) {
+        await File(path).copy(permanentPdfPath);
+      } else if (rawBytes != null) {
+        await targetFile.writeAsBytes(rawBytes, flush: true);
+      }
 
       // Dynamically resolve total page count from PDF binary
       int totalPages = 1;
-      final file = File(path);
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
+      if (await targetFile.exists()) {
+        final bytes = await targetFile.readAsBytes();
         totalPages = PdfVirtualCache.getPdfPageCountFromBytes(bytes);
+      } else if (rawBytes != null) {
+        totalPages = PdfVirtualCache.getPdfPageCountFromBytes(rawBytes);
       }
 
       // Pre-populate virtual pages for all PDF pages
@@ -126,7 +139,7 @@ class LibraryState extends ChangeNotifier {
         ),
       );
 
-      // Create PDF notebook with virtualized pages
+      // Create PDF notebook with virtualized pages and permanent file path
       final notebook = NotebookModel(
         id: id,
         title: title,
@@ -134,7 +147,7 @@ class LibraryState extends ChangeNotifier {
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
         coverColor: 0xFFDC2626, // Red cover for PDFs
-        sourcePdfPath: path,
+        sourcePdfPath: permanentPdfPath,
         pdfTotalPages: totalPages,
         pages: pages,
       );

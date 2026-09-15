@@ -61,5 +61,25 @@ void main() {
       expect(state.lassoPoints, isEmpty);
       expect(state.isLassoActive, isFalse);
     });
+
+    test('addNewPage, deletePageAt, and setActivePageIndex correctly manipulate pages', () {
+      expect(state.notebook.pages.length, equals(1));
+
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(2));
+      expect(state.notebook.pages[1].pageIndex, equals(1));
+
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(3));
+
+      state.setActivePageIndex(1);
+      expect(state.currentPageIndex, equals(1));
+
+      state.deletePageAt(1);
+      expect(state.notebook.pages.length, equals(2));
+      // Reindexed correctly
+      expect(state.notebook.pages[0].pageIndex, equals(0));
+      expect(state.notebook.pages[1].pageIndex, equals(1));
+    });
   });
 }

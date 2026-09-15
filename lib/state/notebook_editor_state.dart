@@ -210,10 +210,15 @@ class NotebookEditorState extends ChangeNotifier {
   }
 
   void deleteCurrentPage() {
+    deletePageAt(_currentPageIndex);
+  }
+
+  void deletePageAt(int index) {
     if (notebook.pages.length <= 1) return; // Keep at least 1 page
+    if (index < 0 || index >= notebook.pages.length) return;
 
     _recordUndoState();
-    final updatedPages = List<PageModel>.from(notebook.pages)..removeAt(_currentPageIndex);
+    final updatedPages = List<PageModel>.from(notebook.pages)..removeAt(index);
 
     for (int i = 0; i < updatedPages.length; i++) {
       updatedPages[i] = updatedPages[i].copyWith(pageIndex: i);
@@ -228,6 +233,16 @@ class NotebookEditorState extends ChangeNotifier {
     }
     _saveToStorage();
     notifyListeners();
+  }
+
+  void setActivePageIndex(int index) {
+    if (index >= 0 && index < notebook.pages.length && _currentPageIndex != index) {
+      _currentPageIndex = index;
+      _undoStack.clear();
+      _redoStack.clear();
+      _clearLassoSelection();
+      notifyListeners();
+    }
   }
 
   // Drawing Lifecycle
