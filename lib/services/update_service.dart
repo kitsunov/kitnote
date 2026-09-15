@@ -156,7 +156,10 @@ class UpdateService {
 
       final contentLength = response.contentLength ?? 0;
       final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/kitnote_update.apk');
+      final uri = Uri.parse(apkUrl);
+      final remoteFileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'KitNote-v$currentVersion.apk';
+      final fileName = remoteFileName.toLowerCase().endsWith('.apk') ? remoteFileName : 'KitNote-v$currentVersion.apk';
+      final file = File('${tempDir.path}/$fileName');
       if (await file.exists()) {
         await file.delete();
       }

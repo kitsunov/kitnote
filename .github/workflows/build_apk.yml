@@ -39,17 +39,26 @@ jobs:
       - name: Build Release APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
+      - name: Prepare Named APK
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [ -z "$VERSION" ]; then
+            VERSION="v$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2 | cut -d '+' -f 1)"
+          fi
+          mkdir -p release_apk
+          cp build/app/outputs/flutter-apk/*.apk release_apk/KitNote-${VERSION}.apk
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: KitNote-APK
+          path: release_apk/*.apk
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: release_apk/KitNote-*.apk
           generate_release_notes: true
           draft: false
           prerelease: false
