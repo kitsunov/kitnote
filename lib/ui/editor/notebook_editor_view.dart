@@ -25,17 +25,21 @@ class NotebookEditorView extends StatelessWidget {
       );
     }
 
-    final primaryNotebook = library.notebooks.firstWhere(
-      (n) => n.id == primaryId,
-      orElse: () => library.notebooks.first,
-    );
+    final primaryNotebook = library.notebooks.where((n) => n.id == primaryId).firstOrNull;
+    if (primaryNotebook == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        workspace.closeNotebook(primaryId);
+      });
+      return Scaffold(
+        body: Center(child: Text(strings.noNotebooks)),
+      );
+    }
 
     NotebookModel? secondaryNotebook;
     if (workspace.isSplitScreen && workspace.secondaryNotebookId != null) {
-      secondaryNotebook = library.notebooks.firstWhere(
+      secondaryNotebook = library.notebooks.where(
         (n) => n.id == workspace.secondaryNotebookId,
-        orElse: () => primaryNotebook,
-      );
+      ).firstOrNull ?? primaryNotebook;
     }
 
     return Scaffold(

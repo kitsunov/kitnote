@@ -72,6 +72,25 @@ class WorkspaceState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void closeNotebook(String notebookId) {
+    if (_secondaryNotebookId == notebookId) {
+      _secondaryNotebookId = null;
+      _isSplitScreen = false;
+    }
+    final hadNotebook = _openNotebookIds.contains(notebookId);
+    _openNotebookIds.removeWhere((id) => id == notebookId);
+
+    if (_openNotebookIds.isEmpty) {
+      _activeTabIndex = 0;
+      _isSplitScreen = false;
+    } else if (_activeTabIndex >= _openNotebookIds.length) {
+      _activeTabIndex = _openNotebookIds.length - 1;
+    }
+    if (hadNotebook) {
+      notifyListeners();
+    }
+  }
+
   void toggleSplitScreen(String? secondaryId) {
     if (_isSplitScreen) {
       _isSplitScreen = false;

@@ -230,17 +230,16 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 minScale: 0.25,
                 maxScale: 4.0,
                 boundaryMargin: const EdgeInsets.symmetric(horizontal: 400, vertical: 800),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (int i = 0; i < pages.length; i++)
-                          _buildPageItem(context, state, i, pages[i], strings),
-                        _buildAddPageButton(context, state, strings),
-                      ],
-                    ),
+                constrained: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (int i = 0; i < pages.length; i++)
+                        _buildPageItem(context, state, i, pages[i], strings),
+                      _buildAddPageButton(context, state, strings),
+                    ],
                   ),
                 ),
               ),

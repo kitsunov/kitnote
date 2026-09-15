@@ -5,6 +5,7 @@ import '../../core/l10n/app_strings.dart';
 import '../../models/page_template_model.dart';
 import '../../services/update_service.dart';
 import '../../state/library_state.dart';
+import '../../state/workspace_state.dart';
 import 'folder_tree_view.dart';
 import 'new_notebook_dialog.dart';
 import 'notebook_card.dart';
@@ -250,7 +251,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           notebook: notebook,
           folderName: folder?.name,
           onTap: () => widget.onOpenNotebook(notebook.id),
-          onDelete: () => library.deleteNotebook(notebook.id),
+          onDelete: () {
+            context.read<WorkspaceState>().closeNotebook(notebook.id);
+            library.deleteNotebook(notebook.id);
+          },
         );
       },
     );

@@ -57,5 +57,29 @@ void main() {
       expect(workspace.primaryNotebookId, equals('nb_C'));
       expect(workspace.activeTabIndex, equals(1));
     });
+
+    test('closeNotebook removes all occurrences, handles split-screen, and resets active index', () {
+      final workspace = WorkspaceState();
+      workspace.openNotebook('nb_A');
+      workspace.openNotebook('nb_B');
+      workspace.openNotebook('nb_C');
+
+      workspace.toggleSplitScreen('nb_B');
+      expect(workspace.isSplitScreen, isTrue);
+      expect(workspace.secondaryNotebookId, equals('nb_B'));
+
+      // Close secondary notebook
+      workspace.closeNotebook('nb_B');
+      expect(workspace.openNotebookIds, equals(['nb_A', 'nb_C']));
+      expect(workspace.isSplitScreen, isFalse);
+      expect(workspace.secondaryNotebookId, isNull);
+
+      // Close all remaining notebooks
+      workspace.closeNotebook('nb_C');
+      workspace.closeNotebook('nb_A');
+      expect(workspace.openNotebookIds, isEmpty);
+      expect(workspace.primaryNotebookId, isNull);
+      expect(workspace.activeTabIndex, equals(0));
+    });
   });
 }

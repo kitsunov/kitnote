@@ -194,6 +194,7 @@ class LibraryState extends ChangeNotifier {
     final index = _notebooks.indexWhere((n) => n.id == updated.id);
     if (index != -1) {
       _notebooks[index] = updated;
+      _activeEditors[updated.id]?.syncNotebook(updated);
       await _storage.saveNotebook(updated);
       notifyListeners();
     }
@@ -226,6 +227,7 @@ class LibraryState extends ChangeNotifier {
     for (int i = 0; i < _notebooks.length; i++) {
       if (_notebooks[i].folderId == folderId) {
         _notebooks[i] = _notebooks[i].copyWith(clearFolderId: true);
+        _activeEditors[_notebooks[i].id]?.syncNotebook(_notebooks[i]);
         await _storage.saveNotebook(_notebooks[i]);
       }
     }

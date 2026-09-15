@@ -126,5 +126,33 @@ void main() {
       expect(notifiedNotebook, isNotNull);
       expect(notifiedNotebook!.pages.length, equals(2));
     });
+
+    test('duplicatePageAt duplicates specified page at index + 1 and preserves order', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(2));
+
+      // Currently active is page 1 (second page). Duplicate page 0 (first page).
+      state.duplicatePageAt(0);
+      expect(state.notebook.pages.length, equals(3));
+      expect(state.currentPageIndex, equals(1)); // new copy is at index 1
+      expect(state.notebook.pages[0].pageIndex, equals(0));
+      expect(state.notebook.pages[1].pageIndex, equals(1));
+      expect(state.notebook.pages[2].pageIndex, equals(2));
+    });
+
+    test('syncNotebook updates notebook and adjusts current page index safely', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      state.addNewPage();
+      state.setActivePageIndex(1);
+      expect(state.currentPageIndex, equals(1));
+
+      // Sync with notebook having only 1 page
+      final singlePageNotebook = testNotebook.copyWith(pages: [testNotebook.pages.first]);
+      state.syncNotebook(singlePageNotebook);
+
+      expect(state.notebook.pages.length, equals(1));
+      expect(state.currentPageIndex, equals(0));
+    });
   });
 }

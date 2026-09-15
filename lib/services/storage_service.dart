@@ -144,8 +144,12 @@ class StorageService {
   }
 
   final Map<String, Future<bool>> _saveQueues = {};
+  final Set<String> _deletedNotebookIds = {};
 
   Future<bool> saveNotebook(NotebookModel notebook) {
+    if (_deletedNotebookIds.contains(notebook.id)) {
+      return Future.value(false);
+    }
     final previous = _saveQueues[notebook.id] ?? Future.value(true);
     final task = previous.then((_) => _atomicSaveNotebook(notebook));
     _saveQueues[notebook.id] = task;
@@ -153,6 +157,9 @@ class StorageService {
   }
 
   Future<bool> _atomicSaveNotebook(NotebookModel notebook) async {
+    if (_deletedNotebookIds.contains(notebook.id)) {
+      return false;
+    }
     try {
       final dir = await notebooksDir;
       final targetFile = File('${dir.path}/${notebook.id}.json');
@@ -186,6 +193,14 @@ class StorageService {
   }
 
   Future<void> deleteNotebook(String notebookId) async {
+    _deletedNotebookIds.add(notebookId);
+    final previous = _saveQueues[notebookId] ?? Future.value(true);
+    final task = previous.then((_) => _deleteNotebookFiles(notebookId));
+    _saveQueues[notebookId] = task;
+    await task;
+  }
+
+  Future<bool> _deleteNotebookFiles(String notebookId) async {
     try {
       final dir = await notebooksDir;
       final file = File('${dir.path}/$notebookId.json');
@@ -205,8 +220,10 @@ class StorageService {
       if (await pdfFile.exists()) {
         await pdfFile.delete();
       }
+      return true;
     } catch (e) {
       debugPrint('[StorageService] Error deleting notebook $notebookId: $e');
+      return false;
     }
   }
 }

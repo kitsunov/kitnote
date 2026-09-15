@@ -29,54 +29,47 @@ class ExportService {
 
       final isPdf = notebook.sourcePdfPath != null;
 
-      // Pre-load rasterized background pages and embedded images asynchronously
-      final Map<int, Uint8List?> pagePdfBackgrounds = {};
-      final Map<String, Uint8List> embeddedImageBytes = {};
-
       for (int i = 0; i < notebook.pages.length; i++) {
         final page = notebook.pages[i];
 
+        // 1. Render background raster for this page just-in-time
+        Uint8List? pdfBgBytes;
         if (isPdf && notebook.sourcePdfPath != null) {
           try {
             final pdfPageIdx = page.pdfPageIndex ?? i;
-            final rasterBytes = await PdfVirtualCache().renderPage(
+            pdfBgBytes = await PdfVirtualCache().renderPage(
               notebook.sourcePdfPath!,
               pdfPageIdx,
               dpi: 150.0,
             );
-            pagePdfBackgrounds[i] = rasterBytes;
           } catch (e) {
             debugPrint('[ExportService] Error rendering background for page $i: $e');
           }
         }
 
+        // 2. Load embedded images for this page
+        final Map<String, Uint8List> pageImageBytes = {};
         for (final img in page.imageElements) {
-          if (img.localPath != null && !embeddedImageBytes.containsKey(img.localPath!)) {
+          if (img.localPath != null) {
             final file = File(img.localPath!);
             if (await file.exists()) {
               try {
-                final bytes = await file.readAsBytes();
-                embeddedImageBytes[img.localPath!] = bytes;
+                pageImageBytes[img.localPath!] = await file.readAsBytes();
               } catch (_) {}
             }
           }
         }
-      }
 
-      for (int i = 0; i < notebook.pages.length; i++) {
-        final page = notebook.pages[i];
-        final pdfBgBytes = pagePdfBackgrounds[i];
+        final pageWidth = page.width;
+        final pageHeight = page.height;
+        const scaleX = 1.0;
+        const scaleY = 1.0;
 
         doc.addPage(
           pw.Page(
-            pageFormat: PdfPageFormat.a4,
+            pageFormat: PdfPageFormat(pageWidth, pageHeight),
             margin: pw.EdgeInsets.zero,
             build: (pw.Context context) {
-              final pageWidth = PdfPageFormat.a4.width;
-              final pageHeight = PdfPageFormat.a4.height;
-              final scaleX = pageWidth / page.width;
-              final scaleY = pageHeight / page.height;
-
               return pw.Stack(
                 children: [
                   // 1. Paper / Base Background Color
@@ -93,7 +86,7 @@ class ExportService {
                     pw.Positioned.fill(
                       child: pw.Image(
                         pw.MemoryImage(pdfBgBytes),
-                        fit: pw.BoxFit.contain,
+                        fit: pw.BoxFit.fill,
                       ),
                     ),
 
@@ -108,37 +101,38 @@ class ExportService {
                       ),
                     ),
 
-                  // 4. Header with notebook title and page number
-                  pw.Positioned(
-                    top: 16,
-                    left: 24,
-                    right: 24,
-                    child: pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Text(
-                          notebook.title,
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            color: PdfColors.grey600,
-                            font: ttfFont,
+                  // 4. Header with notebook title and page number (regular notebooks only)
+                  if (!isPdf)
+                    pw.Positioned(
+                      top: 16,
+                      left: 24,
+                      right: 24,
+                      child: pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text(
+                            notebook.title,
+                            style: pw.TextStyle(
+                              fontSize: 9,
+                              color: PdfColors.grey600,
+                              font: ttfFont,
+                            ),
                           ),
-                        ),
-                        pw.Text(
-                          '${i + 1} / ${notebook.pages.length}',
-                          style: pw.TextStyle(
-                            fontSize: 9,
-                            color: PdfColors.grey600,
-                            font: ttfFont,
+                          pw.Text(
+                            '${i + 1} / ${notebook.pages.length}',
+                            style: pw.TextStyle(
+                              fontSize: 9,
+                              color: PdfColors.grey600,
+                              font: ttfFont,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
 
                   // 5. Embedded Images
                   ...page.imageElements.map((img) {
-                    final bytes = img.localPath != null ? embeddedImageBytes[img.localPath!] : null;
+                    final bytes = img.localPath != null ? pageImageBytes[img.localPath!] : null;
                     if (bytes == null) return pw.Container();
 
                     return pw.Positioned(
@@ -155,7 +149,7 @@ class ExportService {
                     );
                   }),
 
-                  // 6. Vector Inking Strokes (with highlighter transparency)
+                  // 6. Vector Inking Strokes (with true PDF graphic state alpha)
                   if (page.strokes.isNotEmpty)
                     pw.Positioned.fill(
                       child: pw.CustomPaint(
@@ -167,18 +161,16 @@ class ExportService {
                             final isHighlighter = stroke.toolType == ToolType.highlighter;
                             final alpha = isHighlighter ? 0.35 : stroke.opacity;
                             final baseColor = PdfColor.fromInt(stroke.colorValue);
-                            final strokeColor = PdfColor(
-                              baseColor.red,
-                              baseColor.green,
-                              baseColor.blue,
-                              alpha,
-                            );
 
-                            canvas.setColor(strokeColor);
+                            final hasTransparency = isHighlighter || alpha < 1.0;
+                            if (hasTransparency) {
+                              canvas.saveContext();
+                              canvas.setGraphicState(PdfGraphicState(opacity: alpha));
+                            }
 
-                            final strokeWidth = isHighlighter
-                                ? stroke.strokeWidth * scaleX * 1.5
-                                : stroke.strokeWidth * scaleX;
+                            canvas.setColor(baseColor);
+
+                            final strokeWidth = stroke.strokeWidth * scaleX;
 
                             if (stroke.points.length == 1) {
                               canvas.drawEllipse(
@@ -188,21 +180,24 @@ class ExportService {
                                 strokeWidth / 2,
                               );
                               canvas.fillPath();
-                              continue;
+                            } else {
+                              canvas.setLineWidth(strokeWidth);
+                              canvas.moveTo(
+                                stroke.points.first.x * scaleX,
+                                size.y - (stroke.points.first.y * scaleY),
+                              );
+                              for (int p = 1; p < stroke.points.length; p++) {
+                                canvas.lineTo(
+                                  stroke.points[p].x * scaleX,
+                                  size.y - (stroke.points[p].y * scaleY),
+                                );
+                              }
+                              canvas.strokePath();
                             }
 
-                            canvas.setLineWidth(strokeWidth);
-                            canvas.moveTo(
-                              stroke.points.first.x * scaleX,
-                              size.y - (stroke.points.first.y * scaleY),
-                            );
-                            for (int p = 1; p < stroke.points.length; p++) {
-                              canvas.lineTo(
-                                stroke.points[p].x * scaleX,
-                                size.y - (stroke.points[p].y * scaleY),
-                              );
+                            if (hasTransparency) {
+                              canvas.restoreContext();
                             }
-                            canvas.strokePath();
                           }
                         },
                       ),

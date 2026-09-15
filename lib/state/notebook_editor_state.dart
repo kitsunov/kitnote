@@ -189,13 +189,19 @@ class NotebookEditorState extends ChangeNotifier {
   }
 
   void duplicateCurrentPage() {
+    duplicatePageAt(_currentPageIndex);
+  }
+
+  void duplicatePageAt(int index) {
+    if (index < 0 || index >= notebook.pages.length) return;
     _recordUndoState();
-    final copy = currentPage.copyWith(
+    final targetPage = notebook.pages[index];
+    final copy = targetPage.copyWith(
       id: const Uuid().v4(),
-      pageIndex: _currentPageIndex + 1,
+      pageIndex: index + 1,
     );
     final updatedPages = List<PageModel>.from(notebook.pages);
-    updatedPages.insert(_currentPageIndex + 1, copy);
+    updatedPages.insert(index + 1, copy);
 
     for (int i = 0; i < updatedPages.length; i++) {
       updatedPages[i] = updatedPages[i].copyWith(pageIndex: i);
@@ -205,8 +211,16 @@ class NotebookEditorState extends ChangeNotifier {
       pages: updatedPages,
       updatedAt: DateTime.now(),
     );
-    _currentPageIndex = _currentPageIndex + 1;
+    _currentPageIndex = index + 1;
     _saveToStorage();
+    notifyListeners();
+  }
+
+  void syncNotebook(NotebookModel updated) {
+    notebook = updated;
+    if (_currentPageIndex >= notebook.pages.length) {
+      _currentPageIndex = notebook.pages.isEmpty ? 0 : notebook.pages.length - 1;
+    }
     notifyListeners();
   }
 
