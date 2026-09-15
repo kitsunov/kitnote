@@ -24,7 +24,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.1';
+  static const String currentVersion = '1.0.2';
   static const String githubOwner = 'kitsunov';
   static const String githubRepo = 'kitnote';
   static const MethodChannel _channel = MethodChannel('com.kitnote.app/updater');
@@ -39,6 +39,7 @@ class UpdateService {
       final url = Uri.parse('https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest');
       final response = await http.get(url, headers: {
         'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'KitNote-App/$currentVersion',
       }).timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) return null;
