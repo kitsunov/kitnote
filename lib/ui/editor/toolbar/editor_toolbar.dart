@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/l10n/app_localizations.dart';
+import '../../../core/l10n/app_strings.dart';
 import '../../../engine/palm_rejection_manager.dart';
 import '../../../models/tool_type.dart';
 import '../../../state/notebook_editor_state.dart';
@@ -165,6 +166,8 @@ class EditorToolbar extends StatelessWidget {
             onPressed: state.canRedo ? () => state.redo() : null,
             color: state.canRedo ? Colors.black87 : Colors.grey.shade300,
           ),
+          const SizedBox(width: 4),
+          _buildSaveStatusIndicator(context, state, strings),
 
           const Spacer(),
 
@@ -279,6 +282,60 @@ class EditorToolbar extends StatelessWidget {
             onPressed: onToggleSplitScreen,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSaveStatusIndicator(
+    BuildContext context,
+    NotebookEditorState state,
+    AppStrings strings,
+  ) {
+    IconData icon;
+    Color color;
+    String tooltip;
+
+    switch (state.saveStatus) {
+      case SaveStatus.saving:
+        icon = Icons.sync;
+        color = Colors.blue.shade600;
+        tooltip = strings.saving;
+        break;
+      case SaveStatus.error:
+        icon = Icons.cloud_off_outlined;
+        color = Colors.red.shade600;
+        tooltip = strings.saveError;
+        break;
+      case SaveStatus.saved:
+        icon = Icons.cloud_done_outlined;
+        color = Colors.grey.shade600;
+        tooltip = strings.saved;
+        break;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Tooltip(
+        message: tooltip,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: state.saveStatus == SaveStatus.saving
+              ? SizedBox(
+                  key: const ValueKey('saving'),
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                )
+              : Icon(
+                  icon,
+                  key: ValueKey(state.saveStatus),
+                  size: 18,
+                  color: color,
+                ),
+        ),
       ),
     );
   }

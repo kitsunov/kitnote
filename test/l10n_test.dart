@@ -47,6 +47,11 @@ void main() {
         expect(strings.whatsNew, isNotEmpty);
         expect(strings.downloadUpdate, isNotEmpty);
         expect(strings.language, isNotEmpty);
+        expect(strings.retry, isNotEmpty);
+        expect(strings.failedToLoadPage, isNotEmpty);
+        expect(strings.saved, isNotEmpty);
+        expect(strings.saving, isNotEmpty);
+        expect(strings.saveError, isNotEmpty);
       }
     });
 

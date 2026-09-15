@@ -154,5 +154,29 @@ void main() {
       expect(state.notebook.pages.length, equals(1));
       expect(state.currentPageIndex, equals(0));
     });
+
+    test('scrollTargetPageIndex is set on goToPage and addNewPage and cleared on clearScrollTarget', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      state.addNewPage(); // adds page at index 1
+      expect(state.scrollTargetPageIndex, equals(1));
+      state.clearScrollTarget();
+      expect(state.scrollTargetPageIndex, isNull);
+
+      state.goToPage(0);
+      expect(state.scrollTargetPageIndex, equals(0));
+      expect(state.currentPageIndex, equals(0));
+
+      // setActivePageIndex does NOT set scrollTargetPageIndex (only for inking/viewport tracking)
+      state.clearScrollTarget();
+      state.setActivePageIndex(1);
+      expect(state.currentPageIndex, equals(1));
+      expect(state.scrollTargetPageIndex, isNull);
+    });
+
+    test('saveStatus defaults to saved and tracks SaveStatus values', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      expect(state.saveStatus, equals(SaveStatus.saved));
+      expect(SaveStatus.values.length, equals(3));
+    });
   });
 }

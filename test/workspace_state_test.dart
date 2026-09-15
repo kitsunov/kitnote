@@ -81,5 +81,24 @@ void main() {
       expect(workspace.primaryNotebookId, isNull);
       expect(workspace.activeTabIndex, equals(0));
     });
+
+    test('closeNotebook preserves active notebook B when closing neighboring notebook A in [A, B, C]', () {
+      final workspace = WorkspaceState();
+      workspace.openNotebook('nb_A');
+      workspace.openNotebook('nb_B');
+      workspace.openNotebook('nb_C');
+
+      // Select 'nb_B' (index 1)
+      workspace.switchTab(1);
+      expect(workspace.primaryNotebookId, equals('nb_B'));
+      expect(workspace.activeTabIndex, equals(1));
+
+      // Close neighboring notebook 'nb_A'
+      workspace.closeNotebook('nb_A');
+      expect(workspace.openNotebookIds, equals(['nb_B', 'nb_C']));
+      // 'nb_B' must remain the active notebook, not 'nb_C'!
+      expect(workspace.primaryNotebookId, equals('nb_B'));
+      expect(workspace.activeTabIndex, equals(0));
+    });
   });
 }

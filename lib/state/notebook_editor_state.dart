@@ -13,6 +13,8 @@ import '../models/text_element_model.dart';
 import '../models/tool_type.dart';
 import '../services/storage_service.dart';
 
+enum SaveStatus { saved, saving, error }
+
 class NotebookUndoState {
   final List<PageModel> pages;
   final int currentPageIndex;
@@ -27,6 +29,10 @@ class NotebookEditorState extends ChangeNotifier {
   NotebookModel notebook;
   final void Function(NotebookModel updated)? onNotebookChanged;
   int _currentPageIndex = 0;
+  int? _scrollTargetPageIndex;
+
+  SaveStatus _saveStatus = SaveStatus.saved;
+  int _saveVersion = 0;
 
   // Active Tool Configuration
   ToolType _activeTool = ToolType.fountainPen;
@@ -64,6 +70,8 @@ class NotebookEditorState extends ChangeNotifier {
 
   // Getters
   int get currentPageIndex => _currentPageIndex;
+  int? get scrollTargetPageIndex => _scrollTargetPageIndex;
+  SaveStatus get saveStatus => _saveStatus;
   ToolType get activeTool => _activeTool;
   int get activeColor => _activeColor;
   double get activeStrokeWidth => _activeStrokeWidth;
@@ -78,6 +86,10 @@ class NotebookEditorState extends ChangeNotifier {
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
+
+  void clearScrollTarget() {
+    _scrollTargetPageIndex = null;
+  }
 
   PageModel get currentPage {
     if (notebook.pages.isEmpty) {
@@ -144,6 +156,7 @@ class NotebookEditorState extends ChangeNotifier {
   void goToPage(int index) {
     if (index >= 0 && index < notebook.pages.length) {
       _currentPageIndex = index;
+      _scrollTargetPageIndex = index;
       _clearLassoSelection();
       notifyListeners();
     }
@@ -184,6 +197,7 @@ class NotebookEditorState extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _currentPageIndex = insertIdx;
+    _scrollTargetPageIndex = insertIdx;
     _saveToStorage();
     notifyListeners();
   }
@@ -212,6 +226,7 @@ class NotebookEditorState extends ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     _currentPageIndex = index + 1;
+    _scrollTargetPageIndex = index + 1;
     _saveToStorage();
     notifyListeners();
   }
@@ -246,6 +261,7 @@ class NotebookEditorState extends ChangeNotifier {
     if (_currentPageIndex >= updatedPages.length) {
       _currentPageIndex = updatedPages.length - 1;
     }
+    _scrollTargetPageIndex = _currentPageIndex;
     _saveToStorage();
     notifyListeners();
   }
@@ -533,6 +549,7 @@ class NotebookEditorState extends ChangeNotifier {
       0,
       notebook.pages.isEmpty ? 0 : notebook.pages.length - 1,
     );
+    _scrollTargetPageIndex = _currentPageIndex;
     _saveToStorage();
     notifyListeners();
   }
@@ -553,6 +570,7 @@ class NotebookEditorState extends ChangeNotifier {
       0,
       notebook.pages.isEmpty ? 0 : notebook.pages.length - 1,
     );
+    _scrollTargetPageIndex = _currentPageIndex;
     _saveToStorage();
     notifyListeners();
   }
@@ -590,8 +608,22 @@ class NotebookEditorState extends ChangeNotifier {
     );
   }
 
-  void _saveToStorage() {
+  void _saveToStorage() async {
     onNotebookChanged?.call(notebook);
-    StorageService().saveNotebook(notebook);
+    _saveStatus = SaveStatus.saving;
+    notifyListeners();
+    final currentVersion = ++_saveVersion;
+    try {
+      final success = await StorageService().saveNotebook(notebook);
+      if (_saveVersion == currentVersion) {
+        _saveStatus = success ? SaveStatus.saved : SaveStatus.error;
+        notifyListeners();
+      }
+    } catch (_) {
+      if (_saveVersion == currentVersion) {
+        _saveStatus = SaveStatus.error;
+        notifyListeners();
+      }
+    }
   }
 }

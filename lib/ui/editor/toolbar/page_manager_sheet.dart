@@ -78,7 +78,7 @@ class PageManagerSheet extends StatelessWidget {
 
                     return InkWell(
                       onTap: () {
-                        state.setActivePageIndex(index);
+                        state.goToPage(index);
                         Navigator.pop(context);
                       },
                       borderRadius: BorderRadius.circular(12),

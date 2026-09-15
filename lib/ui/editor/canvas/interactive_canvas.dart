@@ -35,13 +35,57 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
   void initState() {
     super.initState();
     _transformController.addListener(_onTransformChanged);
+    widget.editorState.addListener(_onEditorStateChanged);
+  }
+
+  @override
+  void didUpdateWidget(InteractiveCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.editorState != widget.editorState) {
+      oldWidget.editorState.removeListener(_onEditorStateChanged);
+      widget.editorState.addListener(_onEditorStateChanged);
+    }
   }
 
   @override
   void dispose() {
+    widget.editorState.removeListener(_onEditorStateChanged);
     _transformController.removeListener(_onTransformChanged);
     _transformController.dispose();
     super.dispose();
+  }
+
+  void _onEditorStateChanged() {
+    if (!mounted) return;
+    final targetPage = widget.editorState.scrollTargetPageIndex;
+    if (targetPage != null) {
+      widget.editorState.clearScrollTarget();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _scrollToPage(targetPage);
+        }
+      });
+    }
+  }
+
+  void _scrollToPage(int targetIndex) {
+    final pages = widget.editorState.notebook.pages;
+    if (targetIndex < 0 || targetIndex >= pages.length) return;
+
+    double cumulativeY = 40.0;
+    for (int i = 0; i < targetIndex; i++) {
+      cumulativeY += pages[i].height + 44.0 + (i == 0 ? 0 : 36.0);
+    }
+    if (targetIndex > 0) {
+      cumulativeY += 36.0;
+    }
+
+    final matrix = _transformController.value.clone();
+    final scale = matrix.getMaxScaleOnAxis();
+    if (scale <= 0) return;
+
+    matrix.storage[13] = 20.0 - (cumulativeY * scale);
+    _transformController.value = matrix;
   }
 
   void _onTransformChanged() {
@@ -644,15 +688,43 @@ class _PdfPageBackgroundState extends State<_PdfPageBackground> {
     return FutureBuilder<Uint8List?>(
       future: _renderFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.done && snapshot.hasData && snapshot.data != null) {
-          return Image.memory(
-            snapshot.data!,
-            fit: BoxFit.contain,
-          );
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: Icon(Icons.error_outline, color: Colors.red.shade300, size: 36),
+        if (snapshot.connectionState == ConnectionState.done) {
+          if (snapshot.data != null) {
+            return Image.memory(
+              snapshot.data!,
+              fit: BoxFit.contain,
+            );
+          }
+          final strings = AppLocalizations.of(context).strings;
+          return Container(
+            color: Colors.white,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image_outlined, color: Colors.red.shade400, size: 40),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${strings.failedToLoadPage} (${widget.pageIndex + 1})',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(strings.retry),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _loadPage();
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
           );
         }
         return Container(

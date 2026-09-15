@@ -79,6 +79,13 @@ class AppStrings {
   final String colMint;
   final String colDark;
 
+  // Status and Actions
+  final String retry;
+  final String failedToLoadPage;
+  final String saved;
+  final String saving;
+  final String saveError;
+
   const AppStrings({
     required this.appTitle,
     required this.searchHint,
@@ -155,6 +162,11 @@ class AppStrings {
     required this.colSepia,
     required this.colMint,
     required this.colDark,
+    required this.retry,
+    required this.failedToLoadPage,
+    required this.saved,
+    required this.saving,
+    required this.saveError,
   });
 
   // Russian (ru)
@@ -234,6 +246,11 @@ class AppStrings {
     colSepia: 'Сепия',
     colMint: 'Мята',
     colDark: 'Темная',
+    retry: 'Повторить',
+    failedToLoadPage: 'Ошибка загрузки страницы',
+    saved: 'Сохранено',
+    saving: 'Сохранение...',
+    saveError: 'Ошибка сохранения',
   );
 
   // Slovak (sk)
@@ -313,6 +330,11 @@ class AppStrings {
     colSepia: 'Sépia',
     colMint: 'Mätová',
     colDark: 'Tmavá',
+    retry: 'Opakovať',
+    failedToLoadPage: 'Chyba pri načítaní strany',
+    saved: 'Uložené',
+    saving: 'Ukladá sa...',
+    saveError: 'Chyba pri ukladaní',
   );
 
   // English (en)
@@ -392,6 +414,11 @@ class AppStrings {
     colSepia: 'Sepia',
     colMint: 'Mint',
     colDark: 'Dark',
+    retry: 'Retry',
+    failedToLoadPage: 'Failed to load page',
+    saved: 'Saved',
+    saving: 'Saving...',
+    saveError: 'Save error',
   );
 
   // Spanish (es)
@@ -471,6 +498,11 @@ class AppStrings {
     colSepia: 'Sepia',
     colMint: 'Menta',
     colDark: 'Oscuro',
+    retry: 'Reintentar',
+    failedToLoadPage: 'Error al cargar la página',
+    saved: 'Guardado',
+    saving: 'Guardando...',
+    saveError: 'Error al guardar',
   );
 
   // Portuguese (pt)
@@ -550,6 +582,11 @@ class AppStrings {
     colSepia: 'Sépia',
     colMint: 'Menta',
     colDark: 'Escuro',
+    retry: 'Repetir',
+    failedToLoadPage: 'Falha ao carregar a página',
+    saved: 'Salvo',
+    saving: 'Salvando...',
+    saveError: 'Erro ao salvar',
   );
 
   // Chinese Simplified (zh)
@@ -629,6 +666,11 @@ class AppStrings {
     colSepia: '复古色',
     colMint: '薄荷绿',
     colDark: '深色',
+    retry: '重试',
+    failedToLoadPage: '加载页面失败',
+    saved: '已保存',
+    saving: '保存中...',
+    saveError: '保存错误',
   );
 
   static AppStrings of(String languageCode) {
