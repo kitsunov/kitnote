@@ -115,9 +115,16 @@ class PageManagerSheet extends StatelessWidget {
                                       color: Colors.black45,
                                       borderRadius: BorderRadius.circular(6),
                                     ),
-                                    child: Text(
-                                      '${page.strokes.length} штр.',
-                                      style: const TextStyle(fontSize: 10, color: Colors.white),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.edit, size: 9, color: Colors.white70),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          '${page.strokes.length}',
+                                          style: const TextStyle(fontSize: 10, color: Colors.white),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),

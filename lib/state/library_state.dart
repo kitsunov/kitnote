@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../engine/pdf_virtual_cache.dart';
 import '../models/folder_model.dart';
 import '../models/notebook_model.dart';
 import '../models/page_model.dart';
@@ -106,6 +108,24 @@ class LibraryState extends ChangeNotifier {
       final id = const Uuid().v4();
       final title = name.replaceAll('.pdf', '');
 
+      // Dynamically resolve total page count from PDF binary
+      int totalPages = 1;
+      final file = File(path);
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        totalPages = PdfVirtualCache.getPdfPageCountFromBytes(bytes);
+      }
+
+      // Pre-populate virtual pages for all PDF pages
+      final pages = List.generate(
+        totalPages,
+        (i) => PageModel(
+          id: '${id}_p$i',
+          pageIndex: i,
+          pdfPageIndex: i,
+        ),
+      );
+
       // Create PDF notebook with virtualized pages
       final notebook = NotebookModel(
         id: id,
@@ -115,15 +135,8 @@ class LibraryState extends ChangeNotifier {
         updatedAt: DateTime.now(),
         coverColor: 0xFFDC2626, // Red cover for PDFs
         sourcePdfPath: path,
-        pdfTotalPages: 100, // Will be dynamically resolved by virtual PDF engine
-        pages: [
-          // Initial virtual page 0
-          PageModel(
-            id: '${id}_p0',
-            pageIndex: 0,
-            pdfPageIndex: 0,
-          ),
-        ],
+        pdfTotalPages: totalPages,
+        pages: pages,
       );
 
       _notebooks.insert(0, notebook);

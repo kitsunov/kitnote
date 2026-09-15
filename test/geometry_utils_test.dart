@@ -64,5 +64,23 @@ void main() {
       // Eraser far away (200, 200)
       expect(GeometryUtils.isStrokeHitByPoint(stroke, const Offset(200, 200), 10.0), isFalse);
     });
+
+    test('isStrokeHitByPoint handles single-point dot strokes', () {
+      const dotStroke = StrokeModel(
+        id: 'dot_stroke',
+        points: [
+          Point2D(x: 100, y: 100, timestamp: 0),
+        ],
+        colorValue: 0xFF000000,
+        strokeWidth: 4.0,
+        toolType: ToolType.ballpointPen,
+      );
+
+      // Eraser touching dot
+      expect(GeometryUtils.isStrokeHitByPoint(dotStroke, const Offset(102, 101), 10.0), isTrue);
+
+      // Eraser outside dot
+      expect(GeometryUtils.isStrokeHitByPoint(dotStroke, const Offset(125, 125), 10.0), isFalse);
+    });
   });
 }

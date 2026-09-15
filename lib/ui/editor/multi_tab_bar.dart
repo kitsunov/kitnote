@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../state/library_state.dart';
 import '../../state/workspace_state.dart';
 
@@ -12,6 +13,7 @@ class MultiTabBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final workspace = Provider.of<WorkspaceState>(context);
     final library = Provider.of<LibraryState>(context);
+    final strings = AppLocalizations.of(context).strings;
     final openIds = workspace.openNotebookIds;
 
     return Container(
@@ -22,7 +24,7 @@ class MultiTabBar extends StatelessWidget {
           // Back to Library button
           IconButton(
             icon: const Icon(Icons.arrow_back_ios_new, size: 16),
-            tooltip: 'К библиотеке тетрадей',
+            tooltip: strings.allNotebooks,
             onPressed: onBackToLibrary,
           ),
 

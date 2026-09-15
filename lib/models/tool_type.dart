@@ -1,3 +1,5 @@
+import '../core/l10n/app_strings.dart';
+
 enum ToolType {
   ballpointPen,
   fountainPen,
@@ -12,6 +14,31 @@ enum ToolType {
 }
 
 extension ToolTypeExtension on ToolType {
+  String localizedName(AppStrings s) {
+    switch (this) {
+      case ToolType.ballpointPen:
+        return s.ballpointPen;
+      case ToolType.fountainPen:
+        return s.fountainPen;
+      case ToolType.brushPen:
+        return s.brushPen;
+      case ToolType.highlighter:
+        return s.highlighter;
+      case ToolType.strokeEraser:
+        return s.strokeEraser;
+      case ToolType.pixelEraser:
+        return s.pixelEraser;
+      case ToolType.lasso:
+        return s.lasso;
+      case ToolType.ruler:
+        return s.ruler;
+      case ToolType.textBox:
+        return s.text;
+      case ToolType.image:
+        return s.photo;
+    }
+  }
+
   String get displayName {
     switch (this) {
       case ToolType.ballpointPen:

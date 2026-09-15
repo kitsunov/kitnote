@@ -398,6 +398,14 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearLassoSelection() {
+    _lassoPoints.clear();
+    _selectedStrokeIds.clear();
+    _selectedTextIds.clear();
+    _selectedImageIds.clear();
+    notifyListeners();
+  }
+
   void _clearLassoSelection() {
     _lassoPoints.clear();
     _selectedStrokeIds.clear();
@@ -422,6 +430,22 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateTextElement(TextElementModel updated) {
+    _recordUndoState();
+    final list = currentPage.textElements.map((t) => t.id == updated.id ? updated : t).toList();
+    _updateCurrentPageTextElements(list);
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  void deleteTextElement(String id) {
+    _recordUndoState();
+    final list = currentPage.textElements.where((t) => t.id != id).toList();
+    _updateCurrentPageTextElements(list);
+    _saveToStorage();
+    notifyListeners();
+  }
+
   // Image Elements
   void addImageElement(String path, Offset position, double width, double height) {
     _recordUndoState();
@@ -436,6 +460,22 @@ class NotebookEditorState extends ChangeNotifier {
 
     final updated = List<ImageElementModel>.from(currentPage.imageElements)..add(newImg);
     _updateCurrentPageImageElements(updated);
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  void updateImageElement(ImageElementModel updated) {
+    _recordUndoState();
+    final list = currentPage.imageElements.map((i) => i.id == updated.id ? updated : i).toList();
+    _updateCurrentPageImageElements(list);
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  void deleteImageElement(String id) {
+    _recordUndoState();
+    final list = currentPage.imageElements.where((i) => i.id != id).toList();
+    _updateCurrentPageImageElements(list);
     _saveToStorage();
     notifyListeners();
   }

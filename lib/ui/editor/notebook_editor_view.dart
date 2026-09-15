@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../models/notebook_model.dart';
 import '../../state/library_state.dart';
 import '../../state/workspace_state.dart';
@@ -15,11 +16,12 @@ class NotebookEditorView extends StatelessWidget {
   Widget build(BuildContext context) {
     final workspace = Provider.of<WorkspaceState>(context);
     final library = Provider.of<LibraryState>(context);
+    final strings = AppLocalizations.of(context).strings;
 
     final primaryId = workspace.primaryNotebookId;
     if (primaryId == null) {
-      return const Scaffold(
-        body: Center(child: Text('Нет открытых блокнотов')),
+      return Scaffold(
+        body: Center(child: Text(strings.noNotebooks)),
       );
     }
 
