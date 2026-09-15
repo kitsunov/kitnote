@@ -19,7 +19,7 @@
     <application
         android:label="KitNote"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_launcher"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true"
         android:hardwareAccelerated="true">
