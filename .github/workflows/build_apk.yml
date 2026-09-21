@@ -46,7 +46,8 @@ jobs:
             VERSION="v$(grep '^version: ' pubspec.yaml | cut -d ' ' -f 2 | cut -d '+' -f 1)"
           fi
           mkdir -p release_apk
-          cp build/app/outputs/flutter-apk/*.apk release_apk/KitNote-${VERSION}.apk
+          APK_SRC=$(find build/app/outputs/flutter-apk -type f -name "*.apk" | head -n 1)
+          cp "$APK_SRC" "release_apk/KitNote-${VERSION}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

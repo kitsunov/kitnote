@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../core/utils/geometry_utils.dart';
 import '../engine/palm_rejection_manager.dart';
@@ -38,7 +39,16 @@ class NotebookEditorState extends ChangeNotifier {
   ToolType _activeTool = ToolType.fountainPen;
   int _activeColor = 0xFF0F172A; // Black default
   double _activeStrokeWidth = 3.0;
-  final double _eraserRadius = 16.0;
+  double _eraserRadius = 16.0;
+  double _highlighterWidth = 24.0;
+  List<int> _customPaletteColors = [
+    0xFF0F172A, // Slate 900
+    0xFFDC2626, // Red 600
+    0xFF2563EB, // Blue 600
+    0xFF16A34A, // Green 600
+    0xFFD97706, // Amber 600
+    0xFF9333EA, // Purple 600
+  ];
 
   // Palm Rejection
   final PalmRejectionManager _palmRejection =
@@ -66,7 +76,9 @@ class NotebookEditorState extends ChangeNotifier {
   NotebookEditorState({
     required this.notebook,
     this.onNotebookChanged,
-  });
+  }) {
+    loadCustomPaletteColors();
+  }
 
   // Getters
   int get currentPageIndex => _currentPageIndex;
@@ -76,6 +88,8 @@ class NotebookEditorState extends ChangeNotifier {
   int get activeColor => _activeColor;
   double get activeStrokeWidth => _activeStrokeWidth;
   double get eraserRadius => _eraserRadius;
+  double get highlighterWidth => _highlighterWidth;
+  List<int> get customPaletteColors => List.unmodifiable(_customPaletteColors);
   PalmRejectionManager get palmRejection => _palmRejection;
   bool get isRulerEnabled => _isRulerEnabled;
   Offset get rulerPosition => _rulerPosition;
@@ -86,6 +100,17 @@ class NotebookEditorState extends ChangeNotifier {
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
   bool get canUndo => _undoStack.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
+
+  Rect? get lassoBoundingBox {
+    if (_selectedStrokeIds.isEmpty) return null;
+    Rect? bbox;
+    for (final s in currentPage.strokes) {
+      if (_selectedStrokeIds.contains(s.id)) {
+        bbox = bbox == null ? s.boundingBox : bbox.expandToInclude(s.boundingBox);
+      }
+    }
+    return bbox;
+  }
 
   void clearScrollTarget() {
     _scrollTargetPageIndex = null;
@@ -112,6 +137,7 @@ class NotebookEditorState extends ChangeNotifier {
 
   void setColor(int color) {
     _activeColor = color;
+    addCustomColor(color);
     if (_selectedStrokeIds.isNotEmpty) {
       _recordUndoState();
       // Change color of selected strokes
@@ -130,6 +156,45 @@ class NotebookEditorState extends ChangeNotifier {
   void setStrokeWidth(double width) {
     _activeStrokeWidth = width;
     notifyListeners();
+  }
+
+  void setEraserRadius(double radius) {
+    _eraserRadius = radius;
+    notifyListeners();
+  }
+
+  void setHighlighterWidth(double width) {
+    _highlighterWidth = width;
+    notifyListeners();
+  }
+
+  Future<void> loadCustomPaletteColors() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('custom_palette_colors');
+      if (list != null && list.isNotEmpty) {
+        _customPaletteColors = list.map((s) => int.parse(s)).toList();
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> addCustomColor(int color) async {
+    if (_customPaletteColors.contains(color)) {
+      _customPaletteColors.remove(color);
+    }
+    _customPaletteColors.insert(0, color);
+    if (_customPaletteColors.length > 8) {
+      _customPaletteColors = _customPaletteColors.sublist(0, 8);
+    }
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        'custom_palette_colors',
+        _customPaletteColors.map((c) => c.toString()).toList(),
+      );
+    } catch (_) {}
   }
 
   void toggleRuler() {
@@ -324,7 +389,7 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void finishStroke() {
+  void finishStroke([int? upTimestamp]) {
     if (_activeTool.isEraser) {
       _saveToStorage();
       return;
@@ -337,11 +402,15 @@ class NotebookEditorState extends ChangeNotifier {
 
     if (_activeStrokePoints.isEmpty) return;
 
+    final now = upTimestamp ?? DateTime.now().millisecondsSinceEpoch;
+    final lastPtTimestamp = _activeStrokePoints.last.timestamp;
+    final dwellMs = now - lastPtTimestamp;
+
     _recordUndoState();
 
     final opacity = _activeTool == ToolType.highlighter ? 0.35 : 1.0;
     final strokeWidth = _activeTool == ToolType.highlighter
-        ? _activeStrokeWidth * 3.5
+        ? _highlighterWidth
         : _activeStrokeWidth;
 
     StrokeModel newStroke = StrokeModel(
@@ -355,7 +424,7 @@ class NotebookEditorState extends ChangeNotifier {
 
     // Auto-detect shapes if pen was held or line snapped
     if (!_isRulerEnabled && _activeTool != ToolType.highlighter) {
-      final recognized = ShapeRecognizer.tryRecognizeShape(newStroke);
+      final recognized = ShapeRecognizer.tryRecognizeShape(newStroke, endDwellMs: dwellMs);
       if (recognized != null) {
         newStroke = recognized;
       }
@@ -442,6 +511,48 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void duplicateLassoSelection() {
+    if (_selectedStrokeIds.isEmpty) return;
+    _recordUndoState();
+
+    final List<StrokeModel> duplicatedStrokes = [];
+    final Set<String> newSelectedIds = {};
+
+    for (final s in currentPage.strokes) {
+      if (_selectedStrokeIds.contains(s.id)) {
+        final translated = s.translate(24.0, 24.0);
+        final newId = const Uuid().v4();
+        final copy = translated.copyWith(id: newId);
+        duplicatedStrokes.add(copy);
+        newSelectedIds.add(newId);
+      }
+    }
+
+    final updated = List<StrokeModel>.from(currentPage.strokes)..addAll(duplicatedStrokes);
+    _updateCurrentPageStrokes(updated);
+    _selectedStrokeIds
+      ..clear()
+      ..addAll(newSelectedIds);
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  void recolorLassoSelection(int newColor) {
+    if (_selectedStrokeIds.isEmpty) return;
+    _recordUndoState();
+
+    final updated = currentPage.strokes.map((s) {
+      if (_selectedStrokeIds.contains(s.id)) {
+        return s.copyWith(colorValue: newColor);
+      }
+      return s;
+    }).toList();
+
+    _updateCurrentPageStrokes(updated);
+    _saveToStorage();
+    notifyListeners();
+  }
+
   void clearLassoSelection() {
     _lassoPoints.clear();
     _selectedStrokeIds.clear();
@@ -472,6 +583,13 @@ class NotebookEditorState extends ChangeNotifier {
     _updateCurrentPageTextElements(updated);
     _saveToStorage();
     notifyListeners();
+  }
+
+  void moveTextElement(String id, Offset newPosition) {
+    final idx = currentPage.textElements.indexWhere((t) => t.id == id);
+    if (idx == -1) return;
+    final elem = currentPage.textElements[idx];
+    updateTextElement(elem.copyWith(x: newPosition.dx, y: newPosition.dy));
   }
 
   void updateTextElement(TextElementModel updated) {
@@ -506,6 +624,23 @@ class NotebookEditorState extends ChangeNotifier {
     _updateCurrentPageImageElements(updated);
     _saveToStorage();
     notifyListeners();
+  }
+
+  void moveImageElement(String id, Offset newPosition) {
+    final idx = currentPage.imageElements.indexWhere((i) => i.id == id);
+    if (idx == -1) return;
+    final elem = currentPage.imageElements[idx];
+    updateImageElement(elem.copyWith(x: newPosition.dx, y: newPosition.dy));
+  }
+
+  void resizeImageElement(String id, double newWidth, double newHeight) {
+    final idx = currentPage.imageElements.indexWhere((i) => i.id == id);
+    if (idx == -1) return;
+    final elem = currentPage.imageElements[idx];
+    updateImageElement(elem.copyWith(
+      width: newWidth.clamp(50.0, 3000.0),
+      height: newHeight.clamp(50.0, 3000.0),
+    ));
   }
 
   void updateImageElement(ImageElementModel updated) {

@@ -56,6 +56,12 @@ android {
             shrinkResources false
         }
     }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            outputFileName = "KitNote-v${flutterVersionName}.apk"
+        }
+    }
 }
 
 flutter {

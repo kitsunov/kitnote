@@ -105,4 +105,10 @@ class WorkspaceState extends ChangeNotifier {
     _splitRatio = ratio.clamp(0.2, 0.8);
     notifyListeners();
   }
+
+  void setSecondaryNotebook(String notebookId) {
+    _secondaryNotebookId = notebookId;
+    _isSplitScreen = true;
+    notifyListeners();
+  }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../models/notebook_model.dart';
 import '../../state/library_state.dart';
 import '../../state/notebook_editor_state.dart';
@@ -54,6 +55,8 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
   @override
   Widget build(BuildContext context) {
     final workspace = Provider.of<WorkspaceState>(context);
+    final library = Provider.of<LibraryState>(context);
+    final strings = AppLocalizations.of(context).strings;
     final isSplit = workspace.isSplitScreen && _secondaryEditorState != null;
 
     if (!isSplit) {
@@ -80,8 +83,10 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth = constraints.maxWidth;
-        final leftWidth = totalWidth * workspace.splitRatio;
-        final rightWidth = totalWidth - leftWidth;
+        const dividerWidth = 14.0;
+        final availableWidth = (totalWidth - dividerWidth).clamp(0.0, double.infinity);
+        final leftWidth = availableWidth * workspace.splitRatio;
+        final rightWidth = availableWidth - leftWidth;
 
         return Row(
           children: [
@@ -108,22 +113,25 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
             ),
 
             // Draggable Divider Handle
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onHorizontalDragUpdate: (details) {
-                final newRatio = (leftWidth + details.delta.dx) / totalWidth;
-                workspace.setSplitRatio(newRatio);
-              },
-              child: Container(
-                width: 10,
-                color: Colors.grey.shade200,
-                child: Center(
-                  child: Container(
-                    width: 4,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade500,
-                      borderRadius: BorderRadius.circular(2),
+            MouseRegion(
+              cursor: SystemMouseCursors.resizeColumn,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragUpdate: (details) {
+                  final newRatio = (leftWidth + details.delta.dx) / availableWidth;
+                  workspace.setSplitRatio(newRatio);
+                },
+                child: Container(
+                  width: dividerWidth,
+                  color: Colors.grey.shade200,
+                  child: Center(
+                    child: Container(
+                      width: 4,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade500,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
                 ),
@@ -132,12 +140,62 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
 
             // Right Notebook Viewport
             SizedBox(
-              width: rightWidth - 10,
+              width: rightWidth,
               child: ListenableBuilder(
                 listenable: _secondaryEditorState!,
                 builder: (context, _) {
                   return Column(
                     children: [
+                      Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.menu_book, size: 16, color: Colors.black54),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  value: library.notebooks.any((n) => n.id == widget.secondaryNotebook?.id)
+                                      ? widget.secondaryNotebook?.id
+                                      : null,
+                                  hint: Text(
+                                    strings.selectNotebook,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  items: library.notebooks.map((nb) {
+                                    return DropdownMenuItem<String>(
+                                      value: nb.id,
+                                      child: Text(
+                                        nb.title,
+                                        style: const TextStyle(fontSize: 13),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (newId) {
+                                    if (newId != null) {
+                                      workspace.setSecondaryNotebook(newId);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              tooltip: strings.closeSplit,
+                              onPressed: () => workspace.toggleSplitScreen(null),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            ),
+                          ],
+                        ),
+                      ),
                       EditorToolbar(
                         state: _secondaryEditorState!,
                         isSplitActive: true,

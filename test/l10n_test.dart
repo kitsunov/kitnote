@@ -52,6 +52,18 @@ void main() {
         expect(strings.saved, isNotEmpty);
         expect(strings.saving, isNotEmpty);
         expect(strings.saveError, isNotEmpty);
+        expect(strings.goToPage, isNotEmpty);
+        expect(strings.pageNumber, isNotEmpty);
+        expect(strings.eraserSize, isNotEmpty);
+        expect(strings.highlighterThickness, isNotEmpty);
+        expect(strings.color, isNotEmpty);
+        expect(strings.duplicate, isNotEmpty);
+        expect(strings.delete, isNotEmpty);
+        expect(strings.fontSize, isNotEmpty);
+        expect(strings.closeSplit, isNotEmpty);
+        expect(strings.selectNotebook, isNotEmpty);
+        expect(strings.deletePhoto, isNotEmpty);
+        expect(strings.deletePhotoConfirm, isNotEmpty);
       }
     });
 

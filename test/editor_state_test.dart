@@ -1,6 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kitnote/engine/shape_recognizer.dart';
 import 'package:kitnote/models/notebook_model.dart';
 import 'package:kitnote/models/page_model.dart';
+import 'package:kitnote/models/point_model.dart';
+import 'package:kitnote/models/stroke_model.dart';
+import 'package:kitnote/models/tool_type.dart';
 import 'package:kitnote/state/notebook_editor_state.dart';
 
 void main() {
@@ -177,6 +181,122 @@ void main() {
       final state = NotebookEditorState(notebook: testNotebook);
       expect(state.saveStatus, equals(SaveStatus.saved));
       expect(SaveStatus.values.length, equals(3));
+    });
+
+    test('highlighterWidth and eraserRadius can be updated', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      expect(state.highlighterWidth, equals(24.0));
+      state.setHighlighterWidth(36.0);
+      expect(state.highlighterWidth, equals(36.0));
+
+      expect(state.eraserRadius, equals(16.0));
+      state.setEraserRadius(28.0);
+      expect(state.eraserRadius, equals(28.0));
+    });
+
+    test('customPaletteColors can have colors appended', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      final initialCount = state.customPaletteColors.length;
+      state.addCustomColor(0xFFFF0055);
+      expect(state.customPaletteColors.length, equals(initialCount + 1));
+      expect(state.customPaletteColors.contains(0xFFFF0055), isTrue);
+      // Adding duplicate color does not create redundant entry
+      state.addCustomColor(0xFFFF0055);
+      expect(state.customPaletteColors.length, equals(initialCount + 1));
+    });
+
+    test('moveTextElement updates text position correctly', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      state.addTextElement('Hello', const Offset(10, 10));
+      final textId = state.currentPage.textElements.first.id;
+      state.moveTextElement(textId, const Offset(40, 50));
+      final moved = state.currentPage.textElements.first;
+      expect(moved.x, equals(40.0));
+      expect(moved.y, equals(50.0));
+    });
+
+    test('moveImageElement and resizeImageElement update image geometry', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      state.addImageElement('/dummy.png', const Offset(10, 10), 100, 100);
+      final imgId = state.currentPage.imageElements.first.id;
+
+      state.moveImageElement(imgId, const Offset(20, 30));
+      final moved = state.currentPage.imageElements.first;
+      expect(moved.x, equals(20.0));
+      expect(moved.y, equals(30.0));
+
+      state.resizeImageElement(imgId, 150, 200);
+      final resized = state.currentPage.imageElements.first;
+      expect(resized.width, equals(150.0));
+      expect(resized.height, equals(200.0));
+    });
+
+    test('duplicateLassoSelection and recolorLassoSelection operate on selected strokes', () {
+      final state = NotebookEditorState(notebook: testNotebook);
+      const stroke1 = StrokeModel(
+        id: 's1',
+        points: [
+          Point2D(x: 10, y: 10, pressure: 1.0, timestamp: 0),
+          Point2D(x: 20, y: 20, pressure: 1.0, timestamp: 10),
+        ],
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+      final pageWithStroke = state.currentPage.copyWith(strokes: [stroke1]);
+      final nb = state.notebook.copyWith(pages: [pageWithStroke]);
+      state.syncNotebook(nb);
+      expect(state.currentPage.strokes.length, equals(1));
+
+      // Simulate lasso selecting stroke s1
+      state.setTool(ToolType.lasso);
+      state.startStroke(const Point2D(x: 0, y: 0, pressure: 1.0, timestamp: 0));
+      state.appendStrokePoint(const Point2D(x: 100, y: 0, pressure: 1.0, timestamp: 10));
+      state.appendStrokePoint(const Point2D(x: 100, y: 100, pressure: 1.0, timestamp: 20));
+      state.appendStrokePoint(const Point2D(x: 0, y: 100, pressure: 1.0, timestamp: 30));
+      state.finishStroke();
+
+      expect(state.selectedStrokeIds.contains('s1'), isTrue);
+      expect(state.lassoBoundingBox, isNotNull);
+
+      // Recolor
+      state.recolorLassoSelection(0xFFFF0000);
+      expect(state.currentPage.strokes.first.colorValue, equals(0xFFFF0000));
+
+      // Duplicate
+      state.duplicateLassoSelection();
+      expect(state.currentPage.strokes.length, equals(2));
+      final duplicated = state.currentPage.strokes.last;
+      expect(duplicated.colorValue, equals(0xFFFF0000));
+      expect(duplicated.points.first.x, equals(34.0)); // shifted by 24px
+    });
+
+    test('ShapeRecognizer respects dwell time before snapping strokes', () {
+      const points = [
+        Point2D(x: 0, y: 0, pressure: 1.0, timestamp: 0),
+        Point2D(x: 25, y: 0, pressure: 1.0, timestamp: 50),
+        Point2D(x: 50, y: 0, pressure: 1.0, timestamp: 100),
+        Point2D(x: 75, y: 0, pressure: 1.0, timestamp: 150),
+        Point2D(x: 100, y: 0, pressure: 1.0, timestamp: 200),
+      ];
+      const stroke = StrokeModel(
+        id: 'line_test',
+        points: points,
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+
+      // Without dwell time (<350ms and no cluster at end), no snapping occurs
+      final fastHandwriting = ShapeRecognizer.tryRecognizeShape(stroke, endDwellMs: 100);
+      expect(fastHandwriting, isNull);
+
+      // With deliberate dwell time (>=350ms), shape recognition snaps straight line
+      final deliberateHold = ShapeRecognizer.tryRecognizeShape(stroke, endDwellMs: 400);
+      expect(deliberateHold, isNotNull);
+      expect(deliberateHold!.points.length, equals(2));
+      expect(deliberateHold.points.first.x, equals(0.0));
+      expect(deliberateHold.points.last.x, equals(100.0));
     });
   });
 }

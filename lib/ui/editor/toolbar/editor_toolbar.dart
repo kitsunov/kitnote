@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import '../../../core/constants/app_colors.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../engine/palm_rejection_manager.dart';
@@ -9,6 +8,8 @@ import '../../../models/tool_type.dart';
 import '../../../state/notebook_editor_state.dart';
 import '../../widgets/color_circle.dart';
 import '../../widgets/custom_icon_button.dart';
+import 'eraser_picker_sheet.dart';
+import 'highlighter_picker_sheet.dart';
 import 'page_manager_sheet.dart';
 import 'pen_picker_sheet.dart';
 
@@ -63,18 +64,32 @@ class EditorToolbar extends StatelessWidget {
             },
           ),
           CustomIconButton(
-            icon: Icons.brush_outlined,
-            tooltip: strings.highlighter,
+            icon: Icons.border_color,
+            tooltip: '${strings.highlighter} (${strings.highlighterThickness})',
             isSelected: activeTool == ToolType.highlighter,
-            onPressed: () => state.setTool(ToolType.highlighter),
+            onPressed: () {
+              if (activeTool == ToolType.highlighter) {
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => HighlighterPickerSheet(state: state),
+                );
+              } else {
+                state.setTool(ToolType.highlighter);
+              }
+            },
           ),
           CustomIconButton(
             icon: Icons.cleaning_services_outlined,
-            tooltip: '${strings.strokeEraser} / ${strings.pixelEraser}',
+            tooltip: '${strings.strokeEraser} / ${strings.pixelEraser} (${strings.eraserSize})',
             isSelected: activeTool.isEraser,
             onPressed: () {
-              if (activeTool == ToolType.strokeEraser) {
-                state.setTool(ToolType.pixelEraser);
+              if (activeTool.isEraser) {
+                showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => EraserPickerSheet(state: state),
+                );
               } else {
                 state.setTool(ToolType.strokeEraser);
               }
@@ -98,7 +113,6 @@ class EditorToolbar extends StatelessWidget {
             isSelected: activeTool == ToolType.textBox,
             onPressed: () {
               state.setTool(ToolType.textBox);
-              state.addTextElement('${strings.text}...', const Offset(150, 200));
             },
           ),
           CustomIconButton(
@@ -114,13 +128,14 @@ class EditorToolbar extends StatelessWidget {
 
           const VerticalDivider(indent: 12, endIndent: 12, width: 20),
 
-          // 2. Quick Color Palette Swatches
-          ...AppColors.penPresets.take(5).map((c) {
+          // 2. Quick Color Palette Swatches (persisted in state)
+          ...state.customPaletteColors.take(6).map((cInt) {
+            final c = Color(cInt);
             return ColorCircle(
               color: c,
               size: 24,
-              isSelected: state.activeColor == c.toARGB32(),
-              onTap: () => state.setColor(c.toARGB32()),
+              isSelected: state.activeColor == cInt,
+              onTap: () => state.setColor(cInt),
             );
           }),
 
@@ -246,9 +261,21 @@ class EditorToolbar extends StatelessWidget {
                     onPressed: state.currentPageIndex > 0 ? () => state.previousPage() : null,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    '${state.currentPageIndex + 1} / ${state.notebook.pages.length}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => _showJumpToPageDialog(context, state, strings),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      child: Text(
+                        '${state.currentPageIndex + 1} / ${state.notebook.pages.length}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationStyle: TextDecorationStyle.dotted,
+                        ),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 4),
                   IconButton(
@@ -336,6 +363,62 @@ class EditorToolbar extends StatelessWidget {
                   color: color,
                 ),
         ),
+      ),
+    );
+  }
+
+  void _showJumpToPageDialog(
+    BuildContext context,
+    NotebookEditorState state,
+    AppStrings strings,
+  ) {
+    final totalPages = state.notebook.pages.length;
+    final controller = TextEditingController(text: '${state.currentPageIndex + 1}');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.goToPage),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${strings.pageNumber} (1 - $totalPages):'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                hintText: '1 - $totalPages',
+              ),
+              onSubmitted: (val) {
+                final p = int.tryParse(val.trim());
+                if (p != null && p >= 1 && p <= totalPages) {
+                  state.setActivePageIndex(p - 1);
+                  Navigator.pop(ctx);
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final p = int.tryParse(controller.text.trim());
+              if (p != null && p >= 1 && p <= totalPages) {
+                state.setActivePageIndex(p - 1);
+                Navigator.pop(ctx);
+              }
+            },
+            child: Text(strings.done),
+          ),
+        ],
       ),
     );
   }

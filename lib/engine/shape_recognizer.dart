@@ -10,10 +10,36 @@ enum RecognizedShapeType {
 }
 
 class ShapeRecognizer {
-  /// Attempt to recognize if a stroke represents a geometric shape
-  static StrokeModel? tryRecognizeShape(StrokeModel stroke) {
+  /// Attempt to recognize if a stroke represents a geometric shape.
+  /// Requires deliberate dwell/hold at the end of the stroke (minimum 350ms)
+  /// so natural handwriting is never accidentally converted into lines or shapes.
+  static StrokeModel? tryRecognizeShape(
+    StrokeModel stroke, {
+    int endDwellMs = 0,
+    bool forceRecognition = false,
+  }) {
     final points = stroke.points;
     if (points.length < 5) return null;
+
+    // Check dwell time: either passed explicitly (e.g. time between last move and pointerUp),
+    // or calculated from end points clustering within 16px of the end point.
+    bool hasDwell = forceRecognition || endDwellMs >= 350;
+    if (!hasDwell && points.length >= 2) {
+      final end = points.last.toOffset();
+      int dwellStartTimestamp = points.last.timestamp;
+      for (int i = points.length - 2; i >= 0; i--) {
+        if ((points[i].toOffset() - end).distance <= 16.0) {
+          dwellStartTimestamp = points[i].timestamp;
+        } else {
+          break;
+        }
+      }
+      if ((points.last.timestamp - dwellStartTimestamp) >= 350) {
+        hasDwell = true;
+      }
+    }
+
+    if (!hasDwell) return null;
 
     final start = points.first.toOffset();
     final end = points.last.toOffset();
@@ -25,11 +51,11 @@ class ShapeRecognizer {
       pathLength += (points[i + 1].toOffset() - points[i].toOffset()).distance;
     }
 
-    if (pathLength == 0) return null;
+    if (pathLength < 30) return null;
 
     // 1. Check for straight line:
-    // If direct distance between start and end is > 92% of the total path length, it's a line
-    if (totalDistance / pathLength > 0.92) {
+    // If direct distance between start and end is > 94% of the total path length, it's a line
+    if (totalDistance / pathLength > 0.94) {
       final snappedPoints = [
         Point2D(x: start.dx, y: start.dy, pressure: 1.0, timestamp: points.first.timestamp),
         Point2D(x: end.dx, y: end.dy, pressure: 1.0, timestamp: points.last.timestamp),
@@ -42,6 +68,7 @@ class ShapeRecognizer {
     final isClosed = (end - start).distance < 0.25 * stroke.boundingBox.longestSide;
     if (isClosed && points.length > 8) {
       final bounds = stroke.boundingBox;
+      if (bounds.width < 20 || bounds.height < 20) return null;
       final aspect = bounds.width / (bounds.height == 0 ? 1 : bounds.height);
 
       // Circle test: aspect ratio close to 1:1, points roughly equidistant from center
@@ -49,7 +76,7 @@ class ShapeRecognizer {
         final center = bounds.center;
         final radius = (bounds.width + bounds.height) / 4;
 
-        // Generate smooth circle points (16 segments)
+        // Generate smooth circle points (24 segments)
         final circlePoints = <Point2D>[];
         const segments = 24;
         for (int i = 0; i <= segments; i++) {

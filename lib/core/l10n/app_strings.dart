@@ -85,6 +85,18 @@ class AppStrings {
   final String saved;
   final String saving;
   final String saveError;
+  final String goToPage;
+  final String pageNumber;
+  final String eraserSize;
+  final String highlighterThickness;
+  final String color;
+  final String duplicate;
+  final String delete;
+  final String fontSize;
+  final String closeSplit;
+  final String selectNotebook;
+  final String deletePhoto;
+  final String deletePhotoConfirm;
 
   const AppStrings({
     required this.appTitle,
@@ -167,6 +179,18 @@ class AppStrings {
     required this.saved,
     required this.saving,
     required this.saveError,
+    required this.goToPage,
+    required this.pageNumber,
+    required this.eraserSize,
+    required this.highlighterThickness,
+    required this.color,
+    required this.duplicate,
+    required this.delete,
+    required this.fontSize,
+    required this.closeSplit,
+    required this.selectNotebook,
+    required this.deletePhoto,
+    required this.deletePhotoConfirm,
   });
 
   // Russian (ru)
@@ -251,6 +275,18 @@ class AppStrings {
     saved: 'Сохранено',
     saving: 'Сохранение...',
     saveError: 'Ошибка сохранения',
+    goToPage: 'Перейти к странице',
+    pageNumber: 'Номер страницы',
+    eraserSize: 'Размер ластика',
+    highlighterThickness: 'Толщина маркера',
+    color: 'Цвет',
+    duplicate: 'Дублировать',
+    delete: 'Удалить',
+    fontSize: 'Размер шрифта',
+    closeSplit: 'Закрыть разделение',
+    selectNotebook: 'Выбрать блокнот',
+    deletePhoto: 'Удалить фото?',
+    deletePhotoConfirm: 'Вы уверены, что хотите удалить эту фотографию?',
   );
 
   // Slovak (sk)
@@ -335,6 +371,18 @@ class AppStrings {
     saved: 'Uložené',
     saving: 'Ukladá sa...',
     saveError: 'Chyba pri ukladaní',
+    goToPage: 'Prejsť na stranu',
+    pageNumber: 'Číslo strany',
+    eraserSize: 'Veľkosť gumy',
+    highlighterThickness: 'Hrúbka zvýrazňovača',
+    color: 'Farba',
+    duplicate: 'Duplikovať',
+    delete: 'Vymazať',
+    fontSize: 'Veľkosť písma',
+    closeSplit: 'Zavrieť rozdelenie',
+    selectNotebook: 'Vybrať zošit',
+    deletePhoto: 'Vymazať fotku?',
+    deletePhotoConfirm: 'Naozaj chcete vymazať túto fotografiu?',
   );
 
   // English (en)
@@ -419,6 +467,18 @@ class AppStrings {
     saved: 'Saved',
     saving: 'Saving...',
     saveError: 'Save error',
+    goToPage: 'Go to page',
+    pageNumber: 'Page number',
+    eraserSize: 'Eraser size',
+    highlighterThickness: 'Highlighter thickness',
+    color: 'Color',
+    duplicate: 'Duplicate',
+    delete: 'Delete',
+    fontSize: 'Font size',
+    closeSplit: 'Close split',
+    selectNotebook: 'Select notebook',
+    deletePhoto: 'Delete photo?',
+    deletePhotoConfirm: 'Are you sure you want to delete this photo?',
   );
 
   // Spanish (es)
@@ -503,6 +563,18 @@ class AppStrings {
     saved: 'Guardado',
     saving: 'Guardando...',
     saveError: 'Error al guardar',
+    goToPage: 'Ir a la página',
+    pageNumber: 'Número de página',
+    eraserSize: 'Tamaño del borrador',
+    highlighterThickness: 'Grosor del resaltador',
+    color: 'Color',
+    duplicate: 'Duplicar',
+    delete: 'Eliminar',
+    fontSize: 'Tamaño de fuente',
+    closeSplit: 'Cerrar división',
+    selectNotebook: 'Seleccionar cuaderno',
+    deletePhoto: '¿Eliminar foto?',
+    deletePhotoConfirm: '¿Está seguro de que desea eliminar esta foto?',
   );
 
   // Portuguese (pt)
@@ -587,6 +659,18 @@ class AppStrings {
     saved: 'Salvo',
     saving: 'Salvando...',
     saveError: 'Erro ao salvar',
+    goToPage: 'Ir para a página',
+    pageNumber: 'Número da página',
+    eraserSize: 'Tamanho da borracha',
+    highlighterThickness: 'Espessura do marca-texto',
+    color: 'Cor',
+    duplicate: 'Duplicar',
+    delete: 'Excluir',
+    fontSize: 'Tamanho da fonte',
+    closeSplit: 'Fechar divisão',
+    selectNotebook: 'Selecionar caderno',
+    deletePhoto: 'Excluir foto?',
+    deletePhotoConfirm: 'Tem certeza de que deseja excluir esta foto?',
   );
 
   // Chinese Simplified (zh)
@@ -671,6 +755,18 @@ class AppStrings {
     saved: '已保存',
     saving: '保存中...',
     saveError: '保存错误',
+    goToPage: '跳转到页面',
+    pageNumber: '页码',
+    eraserSize: '橡皮擦大小',
+    highlighterThickness: '荧光笔粗细',
+    color: '颜色',
+    duplicate: '复制',
+    delete: '删除',
+    fontSize: '字体大小',
+    closeSplit: '关闭分屏',
+    selectNotebook: '选择笔记本',
+    deletePhoto: '删除照片？',
+    deletePhotoConfirm: '确定要删除此照片吗？',
   );
 
   static AppStrings of(String languageCode) {

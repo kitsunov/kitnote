@@ -47,3 +47,6 @@ migrate_working_dir/
 *.aab
 *.jks
 *.keystore
+
+# Test chat exports
+ChatExport_*/

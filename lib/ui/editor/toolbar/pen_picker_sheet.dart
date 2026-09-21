@@ -12,88 +12,90 @@ class PenPickerSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context).strings;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                strings.penSettings,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          const SizedBox(height: 16),
-          Text(strings.penType, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
-          const SizedBox(height: 10),
-          Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _PenTypeCard(
-                title: strings.ballpointPen,
-                subtitle: strings.penBallpointDesc,
-                icon: Icons.edit,
-                isSelected: state.activeTool == ToolType.ballpointPen,
-                onTap: () {
-                  state.setTool(ToolType.ballpointPen);
-                  Navigator.pop(context);
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    strings.penSettings,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(strings.penType, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _PenTypeCard(
+                    title: strings.ballpointPen,
+                    subtitle: strings.penBallpointDesc,
+                    icon: Icons.edit,
+                    isSelected: state.activeTool == ToolType.ballpointPen,
+                    onTap: () {
+                      state.setTool(ToolType.ballpointPen);
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  _PenTypeCard(
+                    title: strings.fountainPen,
+                    subtitle: strings.penFountainDesc,
+                    icon: Icons.gesture,
+                    isSelected: state.activeTool == ToolType.fountainPen,
+                    onTap: () {
+                      state.setTool(ToolType.fountainPen);
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  _PenTypeCard(
+                    title: strings.brushPen,
+                    subtitle: strings.penBrushDesc,
+                    icon: Icons.brush,
+                    isSelected: state.activeTool == ToolType.brushPen,
+                    onTap: () {
+                      state.setTool(ToolType.brushPen);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(strings.strokeThickness, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+                  Text('${state.activeStrokeWidth.toStringAsFixed(1)} pt', style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              Slider(
+                value: state.activeStrokeWidth,
+                min: 0.5,
+                max: 18.0,
+                divisions: 35,
+                onChanged: (val) {
+                  state.setStrokeWidth(val);
                 },
               ),
-              const SizedBox(width: 12),
-              _PenTypeCard(
-                title: strings.fountainPen,
-                subtitle: strings.penFountainDesc,
-                icon: Icons.gesture,
-                isSelected: state.activeTool == ToolType.fountainPen,
-                onTap: () {
-                  state.setTool(ToolType.fountainPen);
-                  Navigator.pop(context);
-                },
-              ),
-              const SizedBox(width: 12),
-              _PenTypeCard(
-                title: strings.brushPen,
-                subtitle: strings.penBrushDesc,
-                icon: Icons.brush,
-                isSelected: state.activeTool == ToolType.brushPen,
-                onTap: () {
-                  state.setTool(ToolType.brushPen);
-                  Navigator.pop(context);
-                },
-              ),
+              const SizedBox(height: 16),
             ],
           ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(strings.strokeThickness, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
-              Text('${state.activeStrokeWidth.toStringAsFixed(1)} pt', style: const TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          Slider(
-            value: state.activeStrokeWidth,
-            min: 0.5,
-            max: 18.0,
-            divisions: 35,
-            onChanged: (val) {
-              state.setStrokeWidth(val);
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
+        );
+      },
     );
   }
 }
