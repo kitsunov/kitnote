@@ -174,89 +174,186 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: Text(strings.newNotebook),
-        backgroundColor: Colors.blue.shade600,
-        foregroundColor: Colors.white,
-        onPressed: () {
-          showDialog(
-            context: context,
-            builder: (ctx) => NewNotebookDialog(
-              folders: library.folders,
-              initialFolderId: library.selectedFolderId,
-              onCreated: ({
-                required String title,
-                String? folderId,
-                required int coverColor,
-                required PaperTemplateType templateType,
-                required PaperColorTheme paperTheme,
-              }) async {
-                final notebook = await library.createNotebook(
-                  title: title,
-                  folderId: folderId,
-                  coverColor: coverColor,
-                  templateType: templateType,
-                  paperTheme: paperTheme,
+      floatingActionButton: library.isViewingTrash
+          ? null
+          : FloatingActionButton.extended(
+              icon: const Icon(Icons.add),
+              label: Text(strings.newNotebook),
+              backgroundColor: Colors.blue.shade600,
+              foregroundColor: Colors.white,
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => NewNotebookDialog(
+                    folders: library.folders,
+                    initialFolderId: library.selectedFolderId,
+                    onCreated: ({
+                      required String title,
+                      String? folderId,
+                      required int coverColor,
+                      required PaperTemplateType templateType,
+                      required PaperColorTheme paperTheme,
+                    }) async {
+                      final notebook = await library.createNotebook(
+                        title: title,
+                        folderId: folderId,
+                        coverColor: coverColor,
+                        templateType: templateType,
+                        paperTheme: paperTheme,
+                      );
+                      widget.onOpenNotebook(notebook.id);
+                    },
+                  ),
                 );
-                widget.onOpenNotebook(notebook.id);
               },
             ),
-          );
-        },
-      ),
     );
   }
 
   Widget _buildNotebooksGrid(BuildContext context, LibraryState library, AppStrings strings) {
     final notebooks = library.filteredNotebooks;
 
-    if (notebooks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.menu_book, size: 64, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(
-              strings.noNotebooks,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+    return Column(
+      children: [
+        if (library.isViewingTrash)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            color: Colors.red.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.delete_outline, color: Colors.red.shade700, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  '${strings.trash} (${notebooks.length})',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.red.shade900),
+                ),
+                const Spacer(),
+                if (notebooks.isNotEmpty)
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.delete_forever, size: 18),
+                    label: Text(strings.emptyTrash),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () => _confirmEmptyTrash(context, library, strings),
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              strings.noNotebooksSubtitle,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
-            ),
-          ],
+          ),
+        Expanded(
+          child: notebooks.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        library.isViewingTrash ? Icons.delete_outline : Icons.menu_book,
+                        size: 64,
+                        color: Colors.grey.shade300,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        library.isViewingTrash ? strings.trash : strings.noNotebooks,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        library.isViewingTrash ? '' : strings.noNotebooksSubtitle,
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                      ),
+                    ],
+                  ),
+                )
+              : GridView.builder(
+                  padding: const EdgeInsets.all(24),
+                  itemCount: notebooks.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 20,
+                    mainAxisSpacing: 20,
+                    childAspectRatio: 0.72,
+                  ),
+                  itemBuilder: (context, index) {
+                    final notebook = notebooks[index];
+                    final folder = notebook.folderId != null
+                        ? library.folders.firstWhere((f) => f.id == notebook.folderId, orElse: () => library.folders.first)
+                        : null;
+
+                    return NotebookCard(
+                      notebook: notebook,
+                      folderName: folder?.name,
+                      onTap: () => widget.onOpenNotebook(notebook.id),
+                      onRestore: () {
+                        library.restoreFromTrash(notebook.id);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(strings.restoredFromTrash)),
+                        );
+                      },
+                      onDelete: () {
+                        if (library.isViewingTrash) {
+                          _confirmDeletePermanently(context, library, notebook.id, strings);
+                        } else {
+                          context.read<WorkspaceState>().closeNotebook(notebook.id);
+                          library.moveToTrash(notebook.id);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(strings.movedToTrash)),
+                          );
+                        }
+                      },
+                    );
+                  },
+                ),
         ),
-      );
-    }
+      ],
+    );
+  }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(24),
-      itemCount: notebooks.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 20,
-        mainAxisSpacing: 20,
-        childAspectRatio: 0.72,
+  void _confirmEmptyTrash(BuildContext context, LibraryState library, AppStrings strings) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.emptyTrash),
+        content: Text('${strings.emptyTrash}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              library.emptyTrash();
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.deletePermanently),
+          ),
+        ],
       ),
-      itemBuilder: (context, index) {
-        final notebook = notebooks[index];
-        final folder = notebook.folderId != null
-            ? library.folders.firstWhere((f) => f.id == notebook.folderId, orElse: () => library.folders.first)
-            : null;
+    );
+  }
 
-        return NotebookCard(
-          notebook: notebook,
-          folderName: folder?.name,
-          onTap: () => widget.onOpenNotebook(notebook.id),
-          onDelete: () {
-            context.read<WorkspaceState>().closeNotebook(notebook.id);
-            library.deleteNotebook(notebook.id);
-          },
-        );
-      },
+  void _confirmDeletePermanently(BuildContext context, LibraryState library, String notebookId, AppStrings strings) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.deletePermanently),
+        content: Text('${strings.deletePermanently}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              library.deleteNotebookPermanently(notebookId);
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.deletePermanently),
+          ),
+        ],
+      ),
     );
   }
 }

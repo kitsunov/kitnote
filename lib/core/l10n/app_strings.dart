@@ -97,6 +97,25 @@ class AppStrings {
   final String selectNotebook;
   final String deletePhoto;
   final String deletePhotoConfirm;
+  final String trash;
+  final String emptyTrash;
+  final String restore;
+  final String deletePermanently;
+  final String moveToFolder;
+  final String noFolder;
+  final String bookmark;
+  final String insertPageAfter;
+  final String movePageLeft;
+  final String movePageRight;
+  final String changeTemplate;
+  final String applyToAllPages;
+  final String applyToCurrentPage;
+  final String bringToFront;
+  final String sendToBack;
+  final String deleteColor;
+  final String addColor;
+  final String movedToTrash;
+  final String restoredFromTrash;
 
   const AppStrings({
     required this.appTitle,
@@ -191,6 +210,25 @@ class AppStrings {
     required this.selectNotebook,
     required this.deletePhoto,
     required this.deletePhotoConfirm,
+    required this.trash,
+    required this.emptyTrash,
+    required this.restore,
+    required this.deletePermanently,
+    required this.moveToFolder,
+    required this.noFolder,
+    required this.bookmark,
+    required this.insertPageAfter,
+    required this.movePageLeft,
+    required this.movePageRight,
+    required this.changeTemplate,
+    required this.applyToAllPages,
+    required this.applyToCurrentPage,
+    required this.bringToFront,
+    required this.sendToBack,
+    required this.deleteColor,
+    required this.addColor,
+    required this.movedToTrash,
+    required this.restoredFromTrash,
   });
 
   // Russian (ru)
@@ -287,6 +325,25 @@ class AppStrings {
     selectNotebook: 'Выбрать блокнот',
     deletePhoto: 'Удалить фото?',
     deletePhotoConfirm: 'Вы уверены, что хотите удалить эту фотографию?',
+    trash: 'Корзина',
+    emptyTrash: 'Очистить корзину',
+    restore: 'Восстановить',
+    deletePermanently: 'Удалить навсегда',
+    moveToFolder: 'Переместить в папку',
+    noFolder: 'Без папки',
+    bookmark: 'Закладка',
+    insertPageAfter: 'Вставить страницу после',
+    movePageLeft: 'Переместить назад',
+    movePageRight: 'Переместить вперед',
+    changeTemplate: 'Сменить шаблон',
+    applyToAllPages: 'Применить ко всем страницам',
+    applyToCurrentPage: 'Только к этой странице',
+    bringToFront: 'На передний план',
+    sendToBack: 'На задний план',
+    deleteColor: 'Удалить цвет',
+    addColor: 'Добавить цвет',
+    movedToTrash: 'Перемещено в корзину',
+    restoredFromTrash: 'Восстановлено из корзины',
   );
 
   // Slovak (sk)
@@ -383,6 +440,25 @@ class AppStrings {
     selectNotebook: 'Vybrať zošit',
     deletePhoto: 'Vymazať fotku?',
     deletePhotoConfirm: 'Naozaj chcete vymazať túto fotografiu?',
+    trash: 'Kôš',
+    emptyTrash: 'Vyprázdniť kôš',
+    restore: 'Obnoviť',
+    deletePermanently: 'Trvalo odstrániť',
+    moveToFolder: 'Presunúť do priečinka',
+    noFolder: 'Bez priečinka',
+    bookmark: 'Záložka',
+    insertPageAfter: 'Vložiť stranu za',
+    movePageLeft: 'Presunúť dozadu',
+    movePageRight: 'Presunúť dopredu',
+    changeTemplate: 'Zmeniť šablónu',
+    applyToAllPages: 'Použiť na všetky strany',
+    applyToCurrentPage: 'Iba na túto stranu',
+    bringToFront: 'Dopredu',
+    sendToBack: 'Dozadu',
+    deleteColor: 'Odstrániť farbu',
+    addColor: 'Pridať farbu',
+    movedToTrash: 'Presunuté do koša',
+    restoredFromTrash: 'Obnovené z koša',
   );
 
   // English (en)
@@ -479,6 +555,25 @@ class AppStrings {
     selectNotebook: 'Select notebook',
     deletePhoto: 'Delete photo?',
     deletePhotoConfirm: 'Are you sure you want to delete this photo?',
+    trash: 'Trash',
+    emptyTrash: 'Empty Trash',
+    restore: 'Restore',
+    deletePermanently: 'Delete permanently',
+    moveToFolder: 'Move to folder',
+    noFolder: 'No folder',
+    bookmark: 'Bookmark',
+    insertPageAfter: 'Insert page after',
+    movePageLeft: 'Move left',
+    movePageRight: 'Move right',
+    changeTemplate: 'Change template',
+    applyToAllPages: 'Apply to all pages',
+    applyToCurrentPage: 'Current page only',
+    bringToFront: 'Bring to front',
+    sendToBack: 'Send to back',
+    deleteColor: 'Delete color',
+    addColor: 'Add color',
+    movedToTrash: 'Moved to trash',
+    restoredFromTrash: 'Restored from trash',
   );
 
   // Spanish (es)
@@ -575,6 +670,25 @@ class AppStrings {
     selectNotebook: 'Seleccionar cuaderno',
     deletePhoto: '¿Eliminar foto?',
     deletePhotoConfirm: '¿Está seguro de que desea eliminar esta foto?',
+    trash: 'Papelera',
+    emptyTrash: 'Vaciar papelera',
+    restore: 'Restaurar',
+    deletePermanently: 'Eliminar permanentemente',
+    moveToFolder: 'Mover a carpeta',
+    noFolder: 'Sin carpeta',
+    bookmark: 'Marcador',
+    insertPageAfter: 'Insertar página después',
+    movePageLeft: 'Mover atrás',
+    movePageRight: 'Mover adelante',
+    changeTemplate: 'Cambiar plantilla',
+    applyToAllPages: 'Aplicar a todas las páginas',
+    applyToCurrentPage: 'Solo a esta página',
+    bringToFront: 'Traer al frente',
+    sendToBack: 'Enviar al fondo',
+    deleteColor: 'Eliminar color',
+    addColor: 'Añadir color',
+    movedToTrash: 'Movido a la papelera',
+    restoredFromTrash: 'Restaurado de la papelera',
   );
 
   // Portuguese (pt)
@@ -671,6 +785,25 @@ class AppStrings {
     selectNotebook: 'Selecionar caderno',
     deletePhoto: 'Excluir foto?',
     deletePhotoConfirm: 'Tem certeza de que deseja excluir esta foto?',
+    trash: 'Lixeira',
+    emptyTrash: 'Esvaziar lixeira',
+    restore: 'Restaurar',
+    deletePermanently: 'Excluir permanentemente',
+    moveToFolder: 'Mover para pasta',
+    noFolder: 'Sem pasta',
+    bookmark: 'Marcador',
+    insertPageAfter: 'Inserir página após',
+    movePageLeft: 'Mover para trás',
+    movePageRight: 'Mover para a frente',
+    changeTemplate: 'Alterar modelo',
+    applyToAllPages: 'Aplicar a todas as páginas',
+    applyToCurrentPage: 'Apenas nesta página',
+    bringToFront: 'Trazer para frente',
+    sendToBack: 'Enviar para trás',
+    deleteColor: 'Excluir cor',
+    addColor: 'Adicionar cor',
+    movedToTrash: 'Movido para a lixeira',
+    restoredFromTrash: 'Restaurado da lixeira',
   );
 
   // Chinese Simplified (zh)
@@ -767,6 +900,25 @@ class AppStrings {
     selectNotebook: '选择笔记本',
     deletePhoto: '删除照片？',
     deletePhotoConfirm: '确定要删除此照片吗？',
+    trash: '回收站',
+    emptyTrash: '清空回收站',
+    restore: '恢复',
+    deletePermanently: '永久删除',
+    moveToFolder: '移动到文件夹',
+    noFolder: '无文件夹',
+    bookmark: '书签',
+    insertPageAfter: '在后面插入页面',
+    movePageLeft: '前移',
+    movePageRight: '后移',
+    changeTemplate: '更改模板',
+    applyToAllPages: '应用于所有页面',
+    applyToCurrentPage: '仅当前页',
+    bringToFront: '置于顶层',
+    sendToBack: '置于底层',
+    deleteColor: '删除颜色',
+    addColor: '添加颜色',
+    movedToTrash: '已移至回收站',
+    restoredFromTrash: '已从回收站恢复',
   );
 
   static AppStrings of(String languageCode) {

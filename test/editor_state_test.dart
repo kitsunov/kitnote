@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kitnote/engine/shape_recognizer.dart';
 import 'package:kitnote/models/notebook_model.dart';
 import 'package:kitnote/models/page_model.dart';
+import 'package:kitnote/models/page_template_model.dart';
 import 'package:kitnote/models/point_model.dart';
 import 'package:kitnote/models/stroke_model.dart';
 import 'package:kitnote/models/tool_type.dart';
@@ -297,6 +298,111 @@ void main() {
       expect(deliberateHold!.points.length, equals(2));
       expect(deliberateHold.points.first.x, equals(0.0));
       expect(deliberateHold.points.last.x, equals(100.0));
+    });
+
+    test('togglePageBookmark toggles isBookmarked status on page', () {
+      expect(state.currentPage.isBookmarked, isFalse);
+
+      state.togglePageBookmark(0);
+      expect(state.currentPage.isBookmarked, isTrue);
+
+      state.togglePageBookmark(0);
+      expect(state.currentPage.isBookmarked, isFalse);
+    });
+
+    test('insertPageAfter inserts new page at index + 1 and preserves order', () {
+      state.addNewPage();
+      final page1Id = state.notebook.pages[1].id;
+      expect(state.notebook.pages.length, equals(2));
+
+      state.insertPageAfter(0);
+      expect(state.notebook.pages.length, equals(3));
+      expect(state.currentPageIndex, equals(1));
+      expect(state.notebook.pages[0].id, equals('page_0'));
+      expect(state.notebook.pages[2].id, equals(page1Id));
+    });
+
+    test('movePage moves page from one position to another', () {
+      state.addNewPage();
+      final page0Id = state.notebook.pages[0].id;
+      final page1Id = state.notebook.pages[1].id;
+
+      state.movePage(0, 1);
+      expect(state.notebook.pages[0].id, equals(page1Id));
+      expect(state.notebook.pages[1].id, equals(page0Id));
+      expect(state.currentPageIndex, equals(1));
+    });
+
+    test('updateNotebookTemplate and updatePageTemplate update templates correctly', () {
+      state.addNewPage();
+      const newTemplate = PageTemplateModel(
+        type: PaperTemplateType.musicSheet,
+        colorTheme: PaperColorTheme.dark,
+      );
+
+      // Update single page template
+      state.updatePageTemplate(0, newTemplate);
+      expect(state.notebook.pages[0].template.type, equals(PaperTemplateType.musicSheet));
+      expect(state.notebook.pages[0].template.colorTheme, equals(PaperColorTheme.dark));
+      expect(state.notebook.pages[1].template.type, equals(PaperTemplateType.narrowRuled));
+
+      // Update all pages template
+      const allTemplate = PageTemplateModel(
+        type: PaperTemplateType.dotGrid,
+        colorTheme: PaperColorTheme.softSage,
+      );
+      state.updateNotebookTemplate(allTemplate);
+      expect(state.notebook.pages[0].template.type, equals(PaperTemplateType.dotGrid));
+      expect(state.notebook.pages[1].template.type, equals(PaperTemplateType.dotGrid));
+    });
+
+    test('lasso selection encompasses and duplicates text and image elements', () {
+      state.addImageElement('/dummy/img.png', const Offset(10, 10), 50, 50);
+      state.addTextElement('Lasso note', const Offset(20, 20));
+
+      final imgId = state.currentPage.imageElements.first.id;
+      final txtId = state.currentPage.textElements.first.id;
+
+      // Select with lasso polygon enclosing (0,0) to (100,100)
+      state.setTool(ToolType.lasso);
+      state.startStroke(const Point2D(x: 0, y: 0, pressure: 1.0, timestamp: 0));
+      state.appendStrokePoint(const Point2D(x: 100, y: 0, pressure: 1.0, timestamp: 10));
+      state.appendStrokePoint(const Point2D(x: 100, y: 100, pressure: 1.0, timestamp: 20));
+      state.appendStrokePoint(const Point2D(x: 0, y: 100, pressure: 1.0, timestamp: 30));
+      state.finishStroke();
+
+      expect(state.selectedImageIds.contains(imgId), isTrue);
+      expect(state.selectedTextIds.contains(txtId), isTrue);
+
+      // Duplicate selection
+      state.duplicateLassoSelection();
+      expect(state.currentPage.imageElements.length, equals(2));
+      expect(state.currentPage.textElements.length, equals(2));
+
+      // Translate selection
+      state.translateLassoSelection(10.0, 15.0);
+      final duplicatedImg = state.currentPage.imageElements.last;
+      expect(duplicatedImg.x, equals(10 + 24 + 10.0));
+    });
+
+    test('pixel eraser splits strokes upon contact', () {
+      state.setTool(ToolType.ballpointPen);
+      state.startStroke(const Point2D(x: 0, y: 0, timestamp: 0));
+      state.appendStrokePoint(const Point2D(x: 10, y: 0, timestamp: 1));
+      state.appendStrokePoint(const Point2D(x: 20, y: 0, timestamp: 2));
+      state.appendStrokePoint(const Point2D(x: 30, y: 0, timestamp: 3));
+      state.appendStrokePoint(const Point2D(x: 40, y: 0, timestamp: 4));
+      state.finishStroke();
+      expect(state.currentPage.strokes.length, equals(1));
+
+      // Erase at (20, 0) with pixel eraser (radius 6)
+      state.setTool(ToolType.pixelEraser);
+      state.setEraserRadius(6.0);
+      state.startStroke(const Point2D(x: 20, y: 0, pressure: 1.0, timestamp: 10));
+      state.finishStroke();
+
+      // Should be split into 2 sub-strokes
+      expect(state.currentPage.strokes.length, equals(2));
     });
   });
 }

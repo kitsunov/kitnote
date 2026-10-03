@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/app_strings.dart';
 import '../../models/notebook_model.dart';
 import '../../services/export_service.dart';
+import '../../state/library_state.dart';
 
 class NotebookCard extends StatelessWidget {
   final NotebookModel notebook;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onRestore;
   final String? folderName;
 
   const NotebookCard({
@@ -16,8 +20,52 @@ class NotebookCard extends StatelessWidget {
     required this.notebook,
     required this.onTap,
     required this.onDelete,
+    this.onRestore,
     this.folderName,
   });
+
+  void _showMoveToFolderDialog(BuildContext context, LibraryState library, AppStrings strings) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.moveToFolder),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.folder_off_outlined, color: Colors.blueGrey),
+                title: Text(strings.noFolder),
+                trailing: notebook.folderId == null ? const Icon(Icons.check, color: Colors.blue) : null,
+                onTap: () {
+                  library.moveNotebookToFolder(notebook.id, null);
+                  Navigator.pop(ctx);
+                },
+              ),
+              ...library.folders.map((f) {
+                final isCurrent = notebook.folderId == f.id;
+                return ListTile(
+                  leading: Icon(Icons.folder, color: f.color),
+                  title: Text(f.name),
+                  trailing: isCurrent ? const Icon(Icons.check, color: Colors.blue) : null,
+                  onTap: () {
+                    library.moveNotebookToFolder(notebook.id, f.id);
+                    Navigator.pop(ctx);
+                  },
+                );
+              }),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +76,27 @@ class NotebookCard extends StatelessWidget {
     final coverColor = Color(notebook.coverColor);
 
     return GestureDetector(
-      onTap: onTap,
+      onTap: notebook.isDeleted
+          ? () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(notebook.title),
+                  content: Text('${strings.restore}?'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx), child: Text(strings.cancel)),
+                    ElevatedButton(
+                      onPressed: () {
+                        onRestore?.call();
+                        Navigator.pop(ctx);
+                      },
+                      child: Text(strings.restore),
+                    ),
+                  ],
+                ),
+              );
+            }
+          : onTap,
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -144,30 +212,71 @@ class NotebookCard extends StatelessWidget {
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: const Icon(Icons.more_horiz, size: 20, color: Colors.grey),
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              value: 'export',
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.picture_as_pdf, size: 18, color: Colors.blue),
-                                  const SizedBox(width: 8),
-                                  Text(strings.exportPdf),
-                                ],
+                          itemBuilder: (context) {
+                            if (notebook.isDeleted) {
+                              return [
+                                PopupMenuItem(
+                                  value: 'restore',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.restore_from_trash, size: 18, color: Colors.green),
+                                      const SizedBox(width: 8),
+                                      Text(strings.restore),
+                                    ],
+                                  ),
+                                ),
+                                PopupMenuItem(
+                                  value: 'deletePermanent',
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.delete_forever, size: 18, color: Colors.red),
+                                      const SizedBox(width: 8),
+                                      Text(strings.deletePermanently, style: const TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ];
+                            }
+                            return [
+                              PopupMenuItem(
+                                value: 'export',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.picture_as_pdf, size: 18, color: Colors.blue),
+                                    const SizedBox(width: 8),
+                                    Text(strings.exportPdf),
+                                  ],
+                                ),
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                                  const SizedBox(width: 8),
-                                  Text(strings.deleteNotebook, style: const TextStyle(color: Colors.red)),
-                                ],
+                              PopupMenuItem(
+                                value: 'moveToFolder',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.drive_file_move_outlined, size: 18, color: Colors.orange),
+                                    const SizedBox(width: 8),
+                                    Text(strings.moveToFolder),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                    const SizedBox(width: 8),
+                                    Text(strings.deleteNotebook, style: const TextStyle(color: Colors.red)),
+                                  ],
+                                ),
+                              ),
+                            ];
+                          },
                           onSelected: (action) async {
-                            if (action == 'export') {
+                            final library = context.read<LibraryState>();
+                            if (action == 'restore') {
+                              onRestore?.call();
+                            } else if (action == 'deletePermanent') {
+                              onDelete();
+                            } else if (action == 'export') {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('${strings.exportPdf}...')),
                               );
@@ -177,6 +286,8 @@ class NotebookCard extends StatelessWidget {
                                   SnackBar(content: Text('${strings.exportPdf}: ${file.path.split('/').last}')),
                                 );
                               }
+                            } else if (action == 'moveToFolder') {
+                              _showMoveToFolderDialog(context, library, strings);
                             } else if (action == 'delete') {
                               onDelete();
                             }

@@ -47,10 +47,10 @@ class FolderTreeView extends StatelessWidget {
           // "All Notebooks" item
           _FolderListItem(
             title: strings.allNotebooks,
-            count: library.notebooks.length,
+            count: library.notebooks.where((n) => !n.isDeleted).length,
             icon: Icons.auto_stories,
             color: Colors.blue,
-            isSelected: selectedFolderId == null,
+            isSelected: !library.isViewingTrash && selectedFolderId == null,
             onTap: () => library.selectFolder(null),
           ),
 
@@ -62,8 +62,8 @@ class FolderTreeView extends StatelessWidget {
               itemCount: library.folders.length,
               itemBuilder: (context, index) {
                 final folder = library.folders[index];
-                final count = library.notebooks.where((n) => n.folderId == folder.id).length;
-                final isSelected = selectedFolderId == folder.id;
+                final count = library.notebooks.where((n) => !n.isDeleted && n.folderId == folder.id).length;
+                final isSelected = !library.isViewingTrash && selectedFolderId == folder.id;
 
                 return _FolderListItem(
                   title: folder.name,
@@ -77,6 +77,19 @@ class FolderTreeView extends StatelessWidget {
               },
             ),
           ),
+
+          const Divider(height: 16, indent: 16, endIndent: 16),
+
+          // Trash Item
+          _FolderListItem(
+            title: strings.trash,
+            count: library.trashCount,
+            icon: Icons.delete_outline,
+            color: Colors.redAccent,
+            isSelected: library.isViewingTrash,
+            onTap: () => library.viewTrash(true),
+          ),
+          const SizedBox(height: 12),
         ],
       ),
     );

@@ -13,6 +13,7 @@ class PageModel {
   final int? pdfPageIndex;
   final double width;
   final double height;
+  final bool isBookmarked;
 
   const PageModel({
     required this.id,
@@ -24,6 +25,7 @@ class PageModel {
     this.pdfPageIndex,
     this.width = 1200.0,
     this.height = 1600.0,
+    this.isBookmarked = false,
   });
 
   bool get isPdfPage => pdfPageIndex != null;
@@ -38,6 +40,7 @@ class PageModel {
     int? pdfPageIndex,
     double? width,
     double? height,
+    bool? isBookmarked,
   }) {
     return PageModel(
       id: id ?? this.id,
@@ -49,6 +52,7 @@ class PageModel {
       pdfPageIndex: pdfPageIndex ?? this.pdfPageIndex,
       width: width ?? this.width,
       height: height ?? this.height,
+      isBookmarked: isBookmarked ?? this.isBookmarked,
     );
   }
 
@@ -62,6 +66,7 @@ class PageModel {
     'pdfIdx': pdfPageIndex,
     'w': width,
     'h': height,
+    'bm': isBookmarked,
   };
 
   factory PageModel.fromJson(Map<String, dynamic> json) => PageModel(
@@ -82,5 +87,6 @@ class PageModel {
     pdfPageIndex: json['pdfIdx'] as int?,
     width: (json['w'] as num?)?.toDouble() ?? 1200.0,
     height: (json['h'] as num?)?.toDouble() ?? 1600.0,
+    isBookmarked: json['bm'] as bool? ?? false,
   );
 }

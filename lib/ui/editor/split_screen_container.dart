@@ -83,7 +83,7 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final totalWidth = constraints.maxWidth;
-        const dividerWidth = 14.0;
+        const dividerWidth = 36.0;
         final availableWidth = (totalWidth - dividerWidth).clamp(0.0, double.infinity);
         final leftWidth = availableWidth * workspace.splitRatio;
         final rightWidth = availableWidth - leftWidth;
@@ -112,24 +112,25 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
               ),
             ),
 
-            // Draggable Divider Handle
+            // Draggable Divider Handle with 36px touch zone
             MouseRegion(
               cursor: SystemMouseCursors.resizeColumn,
               child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 onHorizontalDragUpdate: (details) {
-                  final newRatio = (leftWidth + details.delta.dx) / availableWidth;
-                  workspace.setSplitRatio(newRatio);
+                  if (availableWidth > 0) {
+                    workspace.setSplitRatio(workspace.splitRatio + details.delta.dx / availableWidth);
+                  }
                 },
                 child: Container(
                   width: dividerWidth,
-                  color: Colors.grey.shade200,
+                  color: Colors.grey.shade100,
                   child: Center(
                     child: Container(
                       width: 4,
                       height: 56,
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade500,
+                        color: Colors.grey.shade400,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),

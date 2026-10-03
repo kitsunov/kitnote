@@ -6,6 +6,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../engine/pdf_virtual_cache.dart';
+import '../../../models/image_element_model.dart';
 import '../../../models/page_model.dart';
 import '../../../models/point_model.dart';
 import '../../../models/text_element_model.dart';
@@ -491,6 +492,10 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
               event.localPosition.dy.clamp(0.0, page.height),
             );
 
+            if (_isPointerOverInteractive(canvasPt, page, state, pageIndex)) {
+              return;
+            }
+
             if (state.activeTool == ToolType.textBox) {
               state.setActivePageIndex(pageIndex);
               state.addTextElement('${strings.text}...', canvasPt);
@@ -586,101 +591,10 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     ),
                   ),
 
-                // 2. Images embedded on page (with drag and corner resize handle)
-                ...page.imageElements.map((img) {
-                  return Positioned(
-                    left: img.x,
-                    top: img.y,
-                    width: img.width,
-                    height: img.height,
-                    child: Transform.rotate(
-                      angle: img.rotation,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          GestureDetector(
-                            onPanUpdate: (details) {
-                              state.moveImageElement(
-                                img.id,
-                                Offset(img.x + details.delta.dx, img.y + details.delta.dy),
-                              );
-                            },
-                            onLongPress: () => _confirmDeleteImage(context, state, img.id),
-                            child: Container(
-                              width: img.width,
-                              height: img.height,
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.blue.withValues(alpha: 0.5), width: 1.5),
-                              ),
-                              child: img.localPath != null
-                                  ? Image.file(
-                                      File(img.localPath!),
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => Container(
-                                        color: Colors.grey.shade200,
-                                        child: const Center(
-                                          child: Icon(Icons.broken_image, color: Colors.grey, size: 32),
-                                        ),
-                                      ),
-                                    )
-                                  : Container(
-                                      color: Colors.blue.shade100,
-                                      child: const Icon(Icons.image, size: 48, color: Colors.blue),
-                                    ),
-                            ),
-                          ),
-                          // Corner resize handle at bottom-right
-                          Positioned(
-                            right: -10,
-                            bottom: -10,
-                            child: GestureDetector(
-                              onPanUpdate: (details) {
-                                state.resizeImageElement(
-                                  img.id,
-                                  img.width + details.delta.dx,
-                                  img.height + details.delta.dy,
-                                );
-                              },
-                              child: Container(
-                                width: 26,
-                                height: 26,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.blue, width: 2),
-                                  boxShadow: const [
-                                    BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
-                                  ],
-                                ),
-                                child: const Icon(Icons.aspect_ratio, size: 14, color: Colors.blue),
-                              ),
-                            ),
-                          ),
-                          // Delete badge at top-right
-                          Positioned(
-                            right: -8,
-                            top: -8,
-                            child: GestureDetector(
-                              onTap: () => _confirmDeleteImage(context, state, img.id),
-                              child: Container(
-                                width: 22,
-                                height: 22,
-                                decoration: const BoxDecoration(
-                                  color: Colors.redAccent,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
-                                  ],
-                                ),
-                                child: const Icon(Icons.close, size: 14, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
+                // 2. Background Images (rendered behind ink strokes)
+                ...page.imageElements
+                    .where((img) => img.isBackground)
+                    .map((img) => _buildImageWidget(context, state, page, pageIndex, img, strings)),
 
                 // 3. Vector Inking Canvas (Strokes + Highlighter + Lasso)
                 Positioned.fill(
@@ -701,53 +615,23 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                   ),
                 ),
 
-                // 4. Text Boxes (tap to edit, drag to move)
-                ...page.textElements.map((txt) {
-                  return Positioned(
-                    left: txt.x,
-                    top: txt.y,
-                    width: txt.width,
-                    child: GestureDetector(
-                      onTap: () => _showEditTextDialog(context, state, txt),
-                      onPanUpdate: (details) {
-                        state.moveTextElement(
-                          txt.id,
-                          Offset(txt.x + details.delta.dx, txt.y + details.delta.dy),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          border: Border.all(color: Colors.blue.withValues(alpha: 0.5)),
-                          borderRadius: BorderRadius.circular(6),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1)),
-                          ],
-                        ),
-                        child: Text(
-                          txt.text,
-                          style: TextStyle(
-                            fontSize: txt.fontSize,
-                            color: txt.color,
-                            fontWeight: txt.isBold ? FontWeight.bold : FontWeight.normal,
-                            fontStyle: txt.isItalic ? FontStyle.italic : FontStyle.normal,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }),
+                // 4. Foreground Images (rendered above strokes)
+                ...page.imageElements
+                    .where((img) => !img.isBackground)
+                    .map((img) => _buildImageWidget(context, state, page, pageIndex, img, strings)),
 
-                // 5. Interactive Lasso Selection Bounding Box & Action Menu
+                // 5. Text Boxes (tap to edit, drag to move, resize handle)
+                ...page.textElements.map((txt) => _buildTextWidget(context, state, page, pageIndex, txt, strings)),
+
+                // 6. Interactive Lasso Selection Bounding Box & Action Menu
                 if (state.currentPageIndex == pageIndex &&
-                    state.selectedStrokeIds.isNotEmpty &&
+                    (state.selectedStrokeIds.isNotEmpty || state.selectedTextIds.isNotEmpty || state.selectedImageIds.isNotEmpty) &&
                     state.lassoBoundingBox != null) ...[
                   () {
                     final bbox = state.lassoBoundingBox!.inflate(8.0);
                     final isTop = bbox.top > 56;
                     final menuY = isTop ? bbox.top - 46.0 : bbox.bottom + 10.0;
-                    final menuX = (bbox.center.dx - 110.0).clamp(10.0, (page.width - 230.0).clamp(10.0, double.infinity));
+                    final menuX = (bbox.center.dx - 140.0).clamp(10.0, (page.width - 290.0).clamp(10.0, double.infinity));
 
                     return Stack(
                       clipBehavior: Clip.none,
@@ -759,7 +643,9 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                           height: bbox.height,
                           child: GestureDetector(
                             onPanUpdate: (details) {
-                              state.translateLassoSelection(details.delta.dx, details.delta.dy);
+                              final scale = _transformController.value.getMaxScaleOnAxis();
+                              final effectiveScale = scale > 0 ? scale : 1.0;
+                              state.translateLassoSelection(details.delta.dx / effectiveScale, details.delta.dy / effectiveScale);
                             },
                             child: Container(
                               decoration: BoxDecoration(
@@ -797,7 +683,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                                     constraints: const BoxConstraints(),
                                     onPressed: () => state.duplicateLassoSelection(),
                                   ),
-                                  const SizedBox(width: 4),
+                                  const SizedBox(width: 2),
                                   IconButton(
                                     icon: const Icon(Icons.palette_outlined, size: 18, color: Colors.indigo),
                                     tooltip: strings.color,
@@ -805,7 +691,23 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                                     constraints: const BoxConstraints(),
                                     onPressed: () => _showRecolorLassoDialog(context, state),
                                   ),
-                                  const SizedBox(width: 4),
+                                  const SizedBox(width: 2),
+                                  IconButton(
+                                    icon: const Icon(Icons.flip_to_front, size: 18, color: Colors.blueGrey),
+                                    tooltip: strings.bringToFront,
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => state.bringLassoSelectionToFront(),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  IconButton(
+                                    icon: const Icon(Icons.flip_to_back, size: 18, color: Colors.blueGrey),
+                                    tooltip: strings.sendToBack,
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => state.sendLassoSelectionToBack(),
+                                  ),
+                                  const SizedBox(width: 2),
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
                                     tooltip: strings.delete,
@@ -835,6 +737,293 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
           ),
         ),
       ],
+    );
+  }
+
+  bool _isPointerOverInteractive(Offset canvasPt, PageModel page, NotebookEditorState state, int pageIndex) {
+    if (state.currentPageIndex == pageIndex &&
+        (state.selectedStrokeIds.isNotEmpty || state.selectedTextIds.isNotEmpty || state.selectedImageIds.isNotEmpty) &&
+        state.lassoBoundingBox != null) {
+      if (state.lassoBoundingBox!.inflate(14.0).contains(canvasPt)) {
+        return true;
+      }
+    }
+
+    for (final txt in page.textElements) {
+      final approxHeight = (txt.fontSize * 2.5).clamp(40.0, 300.0);
+      final rect = Rect.fromLTWH(txt.x - 12, txt.y - 12, txt.width + 24, approxHeight + 24);
+      if (rect.contains(canvasPt)) {
+        return true;
+      }
+    }
+
+    for (final img in page.imageElements) {
+      if (img.isBackground) continue;
+      final rect = Rect.fromLTWH(img.x - 12, img.y - 12, img.width + 24, img.height + 24);
+      if (rect.contains(canvasPt)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Widget _buildImageWidget(
+    BuildContext context,
+    NotebookEditorState state,
+    PageModel page,
+    int pageIndex,
+    ImageElementModel img,
+    AppStrings strings,
+  ) {
+    return Positioned(
+      left: img.x,
+      top: img.y,
+      width: img.width,
+      height: img.height,
+      child: Transform.rotate(
+        angle: img.rotation,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            GestureDetector(
+              onPanStart: (_) {
+                if (state.currentPageIndex != pageIndex) {
+                  state.setActivePageIndex(pageIndex);
+                }
+              },
+              onPanUpdate: (details) {
+                final scale = _transformController.value.getMaxScaleOnAxis();
+                final effectiveScale = scale > 0 ? scale : 1.0;
+                final delta = details.delta / effectiveScale;
+                state.moveImageElementWithCrossPage(
+                  img.id,
+                  Offset(img.x + delta.dx, img.y + delta.dy),
+                );
+              },
+              onLongPress: () => _confirmDeleteImage(context, state, img.id),
+              child: Container(
+                width: img.width,
+                height: img.height,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: img.isBackground
+                        ? Colors.grey.withValues(alpha: 0.4)
+                        : Colors.blue.withValues(alpha: 0.5),
+                    width: 1.5,
+                  ),
+                ),
+                child: img.localPath != null
+                    ? Image.file(
+                        File(img.localPath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(
+                            child: Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                          ),
+                        ),
+                      )
+                    : Container(
+                        color: Colors.blue.shade100,
+                        child: const Icon(Icons.image, size: 48, color: Colors.blue),
+                      ),
+              ),
+            ),
+            // Layer toggle badge at top-left
+            Positioned(
+              left: -8,
+              top: -8,
+              child: GestureDetector(
+                onTap: () {
+                  if (img.isBackground) {
+                    state.bringImageToFront(img.id);
+                  } else {
+                    state.sendImageToBack(img.id);
+                  }
+                },
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blueAccent, width: 1.5),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: Icon(
+                    img.isBackground ? Icons.flip_to_front : Icons.flip_to_back,
+                    size: 13,
+                    color: Colors.blueAccent,
+                  ),
+                ),
+              ),
+            ),
+            // Corner resize handle at bottom-right
+            Positioned(
+              right: -10,
+              bottom: -10,
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  final scale = _transformController.value.getMaxScaleOnAxis();
+                  final effectiveScale = scale > 0 ? scale : 1.0;
+                  final delta = details.delta / effectiveScale;
+                  state.resizeImageElement(
+                    img.id,
+                    (img.width + delta.dx).clamp(40.0, page.width * 2),
+                    (img.height + delta.dy).clamp(40.0, page.height * 2),
+                  );
+                },
+                child: Container(
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 2),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: const Icon(Icons.aspect_ratio, size: 14, color: Colors.blue),
+                ),
+              ),
+            ),
+            // Delete badge at top-right
+            Positioned(
+              right: -8,
+              top: -8,
+              child: GestureDetector(
+                onTap: () => _confirmDeleteImage(context, state, img.id),
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: const BoxDecoration(
+                    color: Colors.redAccent,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: const Icon(Icons.close, size: 14, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextWidget(
+    BuildContext context,
+    NotebookEditorState state,
+    PageModel page,
+    int pageIndex,
+    TextElementModel txt,
+    AppStrings strings,
+  ) {
+    return Positioned(
+      left: txt.x,
+      top: txt.y,
+      width: txt.width,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          GestureDetector(
+            onTap: () => _showEditTextDialog(context, state, txt),
+            onPanStart: (_) {
+              if (state.currentPageIndex != pageIndex) {
+                state.setActivePageIndex(pageIndex);
+              }
+            },
+            onPanUpdate: (details) {
+              final scale = _transformController.value.getMaxScaleOnAxis();
+              final effectiveScale = scale > 0 ? scale : 1.0;
+              final delta = details.delta / effectiveScale;
+              state.moveTextElementWithCrossPage(
+                txt.id,
+                Offset(txt.x + delta.dx, txt.y + delta.dy),
+              );
+            },
+            child: Container(
+              width: txt.width,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.85),
+                border: Border.all(color: Colors.blue.withValues(alpha: 0.5)),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1)),
+                ],
+              ),
+              child: Text(
+                txt.text,
+                style: TextStyle(
+                  fontSize: txt.fontSize,
+                  color: txt.color,
+                  fontWeight: txt.isBold ? FontWeight.bold : FontWeight.normal,
+                  fontStyle: txt.isItalic ? FontStyle.italic : FontStyle.normal,
+                ),
+              ),
+            ),
+          ),
+          // Delete badge at top-right
+          Positioned(
+            right: -8,
+            top: -8,
+            child: GestureDetector(
+              onTap: () => state.deleteTextElement(txt.id),
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: const BoxDecoration(
+                  color: Colors.redAccent,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                  ],
+                ),
+                child: const Icon(Icons.close, size: 12, color: Colors.white),
+              ),
+            ),
+          ),
+          // Corner resize handle at bottom-right (proportional font scaling)
+          Positioned(
+            right: -8,
+            bottom: -8,
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                final scale = _transformController.value.getMaxScaleOnAxis();
+                final effectiveScale = scale > 0 ? scale : 1.0;
+                final delta = details.delta / effectiveScale;
+                final newWidth = (txt.width + delta.dx).clamp(80.0, page.width - txt.x);
+                final widthRatio = newWidth / txt.width;
+                final newFontSize = (txt.fontSize * widthRatio).clamp(10.0, 72.0);
+                state.updateTextElement(txt.copyWith(
+                  width: newWidth,
+                  fontSize: newFontSize,
+                ));
+              },
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.blueAccent, width: 1.8),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                  ],
+                ),
+                child: const Icon(Icons.aspect_ratio, size: 12, color: Colors.blueAccent),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -13,6 +13,8 @@ class NotebookModel {
   final int pdfTotalPages;
   final bool isPinned;
   final List<String> tags;
+  final bool isDeleted;
+  final DateTime? deletedAt;
 
   const NotebookModel({
     required this.id,
@@ -26,6 +28,8 @@ class NotebookModel {
     this.pdfTotalPages = 0,
     this.isPinned = false,
     this.tags = const [],
+    this.isDeleted = false,
+    this.deletedAt,
   });
 
   bool get isPdfNotebook => sourcePdfPath != null && sourcePdfPath!.isNotEmpty;
@@ -45,6 +49,9 @@ class NotebookModel {
     int? pdfTotalPages,
     bool? isPinned,
     List<String>? tags,
+    bool? isDeleted,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return NotebookModel(
       id: id ?? this.id,
@@ -58,6 +65,8 @@ class NotebookModel {
       pdfTotalPages: pdfTotalPages ?? this.pdfTotalPages,
       isPinned: isPinned ?? this.isPinned,
       tags: tags ?? this.tags,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
@@ -73,6 +82,8 @@ class NotebookModel {
     'pdfCount': pdfTotalPages,
     'pinned': isPinned,
     'tags': tags,
+    'del': isDeleted,
+    'dAt': deletedAt?.toIso8601String(),
   };
 
   factory NotebookModel.fromJson(Map<String, dynamic> json) => NotebookModel(
@@ -93,6 +104,8 @@ class NotebookModel {
     pdfTotalPages: json['pdfCount'] as int? ?? 0,
     isPinned: json['pinned'] as bool? ?? false,
     tags: (json['tags'] as List? ?? []).map((e) => e.toString()).toList(),
+    isDeleted: json['del'] as bool? ?? false,
+    deletedAt: json['dAt'] != null ? DateTime.tryParse(json['dAt'] as String) : null,
   );
 
   static NotebookModel createNew({

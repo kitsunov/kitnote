@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kitnote/models/image_element_model.dart';
 import 'package:kitnote/models/notebook_model.dart';
 import 'package:kitnote/models/page_model.dart';
 import 'package:kitnote/models/page_template_model.dart';
@@ -16,12 +17,15 @@ void main() {
         folderId: 'folder_study',
         createdAt: DateTime(2026, 9, 15, 12, 0),
         updatedAt: DateTime(2026, 9, 15, 14, 30),
+        isDeleted: true,
+        deletedAt: DateTime(2026, 9, 15, 15, 0),
         coverColor: 0xFF2563EB,
         tags: ['физика', 'механика'],
         pages: [
           const PageModel(
             id: 'page_0',
             pageIndex: 0,
+            isBookmarked: true,
             template: PageTemplateModel(
               type: PaperTemplateType.cornell,
               colorTheme: PaperColorTheme.ivory,
@@ -36,6 +40,17 @@ void main() {
                 colorValue: 0xFF000000,
                 strokeWidth: 3.0,
                 toolType: ToolType.fountainPen,
+              ),
+            ],
+            imageElements: [
+              ImageElementModel(
+                id: 'img1',
+                localPath: '/tmp/test.png',
+                x: 50,
+                y: 60,
+                width: 200,
+                height: 150,
+                isBackground: false,
               ),
             ],
             textElements: [
@@ -58,13 +73,18 @@ void main() {
       expect(restored.title, equals(original.title));
       expect(restored.folderId, equals(original.folderId));
       expect(restored.tags, equals(original.tags));
+      expect(restored.isDeleted, isTrue);
+      expect(restored.deletedAt, equals(original.deletedAt));
       expect(restored.pages.length, equals(1));
 
       final restoredPage = restored.pages.first;
+      expect(restoredPage.isBookmarked, isTrue);
       expect(restoredPage.template.type, equals(PaperTemplateType.cornell));
       expect(restoredPage.template.colorTheme, equals(PaperColorTheme.ivory));
       expect(restoredPage.strokes.length, equals(1));
       expect(restoredPage.strokes.first.points.length, equals(2));
+      expect(restoredPage.imageElements.length, equals(1));
+      expect(restoredPage.imageElements.first.isBackground, isFalse);
       expect(restoredPage.textElements.first.text, equals('Квантовая теория поля'));
     });
   });

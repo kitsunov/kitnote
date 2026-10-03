@@ -20,16 +20,22 @@ class LibraryState extends ChangeNotifier {
   String? _selectedFolderId;
   String _searchQuery = '';
   bool _isLoading = false;
+  bool _isViewingTrash = false;
 
   List<NotebookModel> get notebooks => _notebooks;
   List<FolderModel> get folders => _folders;
   String? get selectedFolderId => _selectedFolderId;
   String get searchQuery => _searchQuery;
   bool get isLoading => _isLoading;
+  bool get isViewingTrash => _isViewingTrash;
+  int get trashCount => _notebooks.where((nb) => nb.isDeleted).length;
+  List<NotebookModel> get trashNotebooks => _notebooks.where((nb) => nb.isDeleted).toList();
   GoogleDriveService get googleDrive => _googleDrive;
 
-  LibraryState() {
-    init();
+  LibraryState({bool autoInit = true}) {
+    if (autoInit) {
+      init();
+    }
   }
 
   Future<void> init() async {
@@ -45,7 +51,16 @@ class LibraryState extends ChangeNotifier {
   }
 
   void selectFolder(String? folderId) {
+    _isViewingTrash = false;
     _selectedFolderId = folderId;
+    notifyListeners();
+  }
+
+  void viewTrash(bool viewing) {
+    _isViewingTrash = viewing;
+    if (viewing) {
+      _selectedFolderId = null;
+    }
     notifyListeners();
   }
 
@@ -56,8 +71,13 @@ class LibraryState extends ChangeNotifier {
 
   List<NotebookModel> get filteredNotebooks {
     return _notebooks.where((nb) {
-      if (_selectedFolderId != null && nb.folderId != _selectedFolderId) {
-        return false;
+      if (_isViewingTrash) {
+        if (!nb.isDeleted) return false;
+      } else {
+        if (nb.isDeleted) return false;
+        if (_selectedFolderId != null && nb.folderId != _selectedFolderId) {
+          return false;
+        }
       }
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
@@ -200,11 +220,67 @@ class LibraryState extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteNotebook(String notebookId) async {
+  Future<void> moveToTrash(String notebookId) async {
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final updated = _notebooks[index].copyWith(
+        isDeleted: true,
+        deletedAt: DateTime.now(),
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
+  }
+
+  Future<void> restoreFromTrash(String notebookId) async {
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final updated = _notebooks[index].copyWith(
+        isDeleted: false,
+        clearDeletedAt: true,
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteNotebookPermanently(String notebookId) async {
     _activeEditors.remove(notebookId)?.dispose();
     _notebooks.removeWhere((n) => n.id == notebookId);
     await _storage.deleteNotebook(notebookId);
     notifyListeners();
+  }
+
+  Future<void> emptyTrash() async {
+    final toDelete = _notebooks.where((n) => n.isDeleted).map((n) => n.id).toList();
+    for (final id in toDelete) {
+      _activeEditors.remove(id)?.dispose();
+      await _storage.deleteNotebook(id);
+    }
+    _notebooks.removeWhere((n) => n.isDeleted);
+    notifyListeners();
+  }
+
+  Future<void> moveNotebookToFolder(String notebookId, String? folderId) async {
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final updated = _notebooks[index].copyWith(
+        folderId: folderId,
+        clearFolderId: folderId == null,
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteNotebook(String notebookId) async {
+    await moveToTrash(notebookId);
   }
 
   // Folder Operations

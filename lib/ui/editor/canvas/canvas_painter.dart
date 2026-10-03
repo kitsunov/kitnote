@@ -64,7 +64,7 @@ class CanvasPainter extends CustomPainter {
     if (activeStrokePoints.isNotEmpty) {
       final isHighlighter = activeTool == ToolType.highlighter;
       final opacity = isHighlighter ? 0.35 : 1.0;
-      final width = isHighlighter ? activeStrokeWidth * 3.5 : activeStrokeWidth;
+      final width = activeStrokeWidth;
 
       final tempStroke = StrokeModel(
         id: 'active_preview',

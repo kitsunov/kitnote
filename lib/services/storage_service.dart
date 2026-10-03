@@ -13,7 +13,7 @@ class StorageService {
   Directory? _baseDir;
 
   Future<Directory> get baseDir async {
-    if (_baseDir != null) return _baseDir!;
+    if (_baseDir != null && await _baseDir!.exists()) return _baseDir!;
     final appDir = await getApplicationDocumentsDirectory();
     final kitNoteDir = Directory('${appDir.path}/kitnote_data');
     if (!await kitNoteDir.exists()) {

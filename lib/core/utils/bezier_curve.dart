@@ -3,9 +3,19 @@ import '../../models/point_model.dart';
 
 class BezierCurveUtils {
   /// Generate smooth Path from sampled Point2D points
-  static Path generateSmoothPath(List<Point2D> points) {
+  static Path generateSmoothPath(List<Point2D> rawPoints) {
     final path = Path();
-    if (points.isEmpty) return path;
+    if (rawPoints.isEmpty) return path;
+
+    // Filter out initial touchdown micro-jitter that causes hooks
+    final points = <Point2D>[rawPoints.first];
+    for (int i = 1; i < rawPoints.length; i++) {
+      final p = rawPoints[i];
+      if (i == 1 && (p.toOffset() - rawPoints.first.toOffset()).distance < 2.5 && rawPoints.length > 2) {
+        continue;
+      }
+      points.add(p);
+    }
 
     if (points.length == 1) {
       final p = points.first.toOffset();

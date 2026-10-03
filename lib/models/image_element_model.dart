@@ -10,6 +10,7 @@ class ImageElementModel {
   final double width;
   final double height;
   final double rotation; // in radians
+  final bool isBackground;
 
   const ImageElementModel({
     required this.id,
@@ -20,6 +21,7 @@ class ImageElementModel {
     required this.width,
     required this.height,
     this.rotation = 0.0,
+    this.isBackground = true,
   });
 
   Rect get boundingBox => Rect.fromLTWH(x, y, width, height);
@@ -33,6 +35,7 @@ class ImageElementModel {
     double? width,
     double? height,
     double? rotation,
+    bool? isBackground,
   }) {
     return ImageElementModel(
       id: id ?? this.id,
@@ -43,6 +46,7 @@ class ImageElementModel {
       width: width ?? this.width,
       height: height ?? this.height,
       rotation: rotation ?? this.rotation,
+      isBackground: isBackground ?? this.isBackground,
     );
   }
 
@@ -58,6 +62,7 @@ class ImageElementModel {
     'w': width,
     'h': height,
     'rot': rotation,
+    'bg': isBackground,
   };
 
   factory ImageElementModel.fromJson(Map<String, dynamic> json) =>
@@ -69,5 +74,6 @@ class ImageElementModel {
         width: (json['w'] as num).toDouble(),
         height: (json['h'] as num).toDouble(),
         rotation: (json['rot'] as num?)?.toDouble() ?? 0.0,
+        isBackground: json['bg'] as bool? ?? true,
       );
 }

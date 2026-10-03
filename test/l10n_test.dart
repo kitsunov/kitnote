@@ -64,6 +64,25 @@ void main() {
         expect(strings.selectNotebook, isNotEmpty);
         expect(strings.deletePhoto, isNotEmpty);
         expect(strings.deletePhotoConfirm, isNotEmpty);
+        expect(strings.trash, isNotEmpty);
+        expect(strings.emptyTrash, isNotEmpty);
+        expect(strings.restore, isNotEmpty);
+        expect(strings.deletePermanently, isNotEmpty);
+        expect(strings.moveToFolder, isNotEmpty);
+        expect(strings.noFolder, isNotEmpty);
+        expect(strings.bookmark, isNotEmpty);
+        expect(strings.insertPageAfter, isNotEmpty);
+        expect(strings.movePageLeft, isNotEmpty);
+        expect(strings.movePageRight, isNotEmpty);
+        expect(strings.changeTemplate, isNotEmpty);
+        expect(strings.applyToAllPages, isNotEmpty);
+        expect(strings.applyToCurrentPage, isNotEmpty);
+        expect(strings.bringToFront, isNotEmpty);
+        expect(strings.sendToBack, isNotEmpty);
+        expect(strings.deleteColor, isNotEmpty);
+        expect(strings.addColor, isNotEmpty);
+        expect(strings.movedToTrash, isNotEmpty);
+        expect(strings.restoredFromTrash, isNotEmpty);
       }
     });
 

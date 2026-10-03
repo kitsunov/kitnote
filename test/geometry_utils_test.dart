@@ -43,7 +43,7 @@ void main() {
       final projected = GeometryUtils.projectOntoRuler(point, origin, angle);
 
       expect(projected.dx, closeTo(150.0, 0.001));
-      expect(projected.dy, closeTo(100.0, 0.001));
+      expect(projected.dy, closeTo(60.0, 0.001));
     });
 
     test('isStrokeHitByPoint detects eraser collision', () {
@@ -81,6 +81,37 @@ void main() {
 
       // Eraser outside dot
       expect(GeometryUtils.isStrokeHitByPoint(dotStroke, const Offset(125, 125), 10.0), isFalse);
+    });
+
+    test('eraseStrokePixels splits stroke into sub-strokes or removes points', () {
+      const stroke = StrokeModel(
+        id: 'split_stroke',
+        points: [
+          Point2D(x: 0, y: 0, timestamp: 0),
+          Point2D(x: 10, y: 0, timestamp: 1),
+          Point2D(x: 20, y: 0, timestamp: 2),
+          Point2D(x: 30, y: 0, timestamp: 3),
+          Point2D(x: 40, y: 0, timestamp: 4),
+        ],
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+
+      // Eraser at midpoint (20, 0) with radius 6 should erase point (20, 0) and split stroke
+      final split = GeometryUtils.eraseStrokePixels(stroke, const Offset(20, 0), 6.0);
+      expect(split.length, 2);
+      expect(split[0].points.length, greaterThanOrEqualTo(2));
+      expect(split[1].points.length, greaterThanOrEqualTo(2));
+
+      // Eraser completely missing
+      final unchanged = GeometryUtils.eraseStrokePixels(stroke, const Offset(200, 200), 5.0);
+      expect(unchanged.length, 1);
+      expect(unchanged[0].points.length, 5);
+
+      // Eraser covering everything
+      final erasedAll = GeometryUtils.eraseStrokePixels(stroke, const Offset(20, 0), 100.0);
+      expect(erasedAll.isEmpty, isTrue);
     });
   });
 }

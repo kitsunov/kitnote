@@ -1,7 +1,7 @@
 name: kitnote
 description: "KitNote - Pro Note Taking & Large PDF Annotation app with Palm Rejection, Split View, and Cloud Sync."
 publish_to: 'none'
-version: 1.0.7+8
+version: 1.0.8+9
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
