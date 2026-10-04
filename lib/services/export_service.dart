@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:vector_math/vector_math_64.dart' as vm;
 import '../engine/pdf_virtual_cache.dart';
+import '../models/image_element_model.dart';
 import '../models/notebook_model.dart';
 import '../models/page_template_model.dart';
 import '../models/tool_type.dart';
@@ -36,20 +39,25 @@ class ExportService {
   static Future<File?> exportNotebookToPdf(
     NotebookModel notebook, {
     bool share = false,
+    pw.Font? fontOverride,
   }) async {
     try {
       final pdfDoc = PdfDocument();
 
       PdfFont pdfFont;
-      try {
-        final font = await PdfGoogleFonts.robotoRegular();
-        if (font is pw.TtfFont) {
-          pdfFont = font.buildFont(pdfDoc);
-        } else {
+      if (fontOverride is pw.TtfFont) {
+        pdfFont = fontOverride.buildFont(pdfDoc);
+      } else {
+        try {
+          final font = await PdfGoogleFonts.robotoRegular();
+          if (font is pw.TtfFont) {
+            pdfFont = font.buildFont(pdfDoc);
+          } else {
+            pdfFont = PdfFont.helvetica(pdfDoc);
+          }
+        } catch (_) {
           pdfFont = PdfFont.helvetica(pdfDoc);
         }
-      } catch (e) {
-        pdfFont = PdfFont.helvetica(pdfDoc);
       }
 
       final isPdf = notebook.sourcePdfPath != null;
@@ -113,19 +121,9 @@ class ExportService {
           canvas.drawString(pdfFont, 9, pageIndicator, pageWidth - 80, pageHeight - 20);
         }
 
-        // 5. Embedded Images
-        for (final img in page.imageElements) {
-          if (img.localPath != null) {
-            final file = File(img.localPath!);
-            if (await file.exists()) {
-              try {
-                final imgBytes = await file.readAsBytes();
-                final imgPdf = PdfImage.file(pdfDoc, bytes: imgBytes);
-                final pdfY = pageHeight - (img.y + img.height);
-                canvas.drawImage(imgPdf, img.x, pdfY, img.width, img.height);
-              } catch (_) {}
-            }
-          }
+        // 5. Background Images (rendered behind strokes)
+        for (final img in page.imageElements.where((i) => i.isBackground)) {
+          await _renderImageToPdf(pdfDoc, canvas, img, pageHeight);
         }
 
         // 6. Vector Inking Strokes (with true PDF graphic state alpha)
@@ -175,11 +173,47 @@ class ExportService {
           }
         }
 
-        // 7. Text Elements
+        // 7. Foreground Images (rendered above strokes)
+        for (final img in page.imageElements.where((i) => !i.isBackground)) {
+          await _renderImageToPdf(pdfDoc, canvas, img, pageHeight);
+        }
+
+        // 8. Text Elements
         for (final txt in page.textElements) {
           canvas.setColor(PdfColor.fromInt(txt.colorValue));
-          final pdfY = pageHeight - txt.y - txt.fontSize;
-          canvas.drawString(pdfFont, txt.fontSize, txt.text, txt.x, pdfY);
+          final maxLineWidth = math.max(20.0, txt.width - 16.0);
+          final lineHeight = txt.fontSize * 1.25;
+          final rawLines = txt.text.split('\n');
+          final lines = <String>[];
+
+          for (final rawLine in rawLines) {
+            if (rawLine.isEmpty) {
+              lines.add('');
+              continue;
+            }
+            final words = rawLine.split(' ');
+            String currentLine = '';
+            for (final word in words) {
+              final testLine = currentLine.isEmpty ? word : '$currentLine $word';
+              final approxWidth = testLine.length * (txt.fontSize * 0.55);
+              if (approxWidth > maxLineWidth && currentLine.isNotEmpty) {
+                lines.add(currentLine);
+                currentLine = word;
+              } else {
+                currentLine = testLine;
+              }
+            }
+            if (currentLine.isNotEmpty) {
+              lines.add(currentLine);
+            }
+          }
+
+          for (int lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            final line = lines[lineIdx];
+            if (line.trim().isEmpty) continue;
+            final pdfY = pageHeight - (txt.y + 8) - (lineIdx + 1) * lineHeight;
+            canvas.drawString(pdfFont, txt.fontSize, line, txt.x + 8, pdfY);
+          }
         }
       }
 
@@ -317,6 +351,44 @@ class ExportService {
         }
         canvas.strokePath();
         break;
+    }
+  }
+
+  static Future<void> _renderImageToPdf(
+    PdfDocument pdfDoc,
+    PdfGraphics canvas,
+    ImageElementModel img,
+    double pageHeight,
+  ) async {
+    Uint8List? imgBytes = img.rawBytes;
+    if (imgBytes == null && img.localPath != null) {
+      final file = File(img.localPath!);
+      if (await file.exists()) {
+        try {
+          imgBytes = await file.readAsBytes();
+        } catch (_) {}
+      }
+    }
+
+    if (imgBytes != null && imgBytes.isNotEmpty) {
+      try {
+        final imgPdf = PdfImage.file(pdfDoc, bytes: imgBytes);
+        final pdfY = pageHeight - (img.y + img.height);
+        if (img.rotation != 0) {
+          canvas.saveContext();
+          final centerX = img.x + img.width / 2;
+          final centerY = pdfY + img.height / 2;
+          final mat = vm.Matrix4.identity()
+            ..translateByDouble(centerX, centerY, 0, 1)
+            ..rotateZ(-img.rotation)
+            ..translateByDouble(-centerX, -centerY, 0, 1);
+          canvas.setTransform(mat);
+        }
+        canvas.drawImage(imgPdf, img.x, pdfY, img.width, img.height);
+        if (img.rotation != 0) {
+          canvas.restoreContext();
+        }
+      } catch (_) {}
     }
   }
 }

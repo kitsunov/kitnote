@@ -127,7 +127,7 @@ class FolderTreeView extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).then((_) => textController.dispose());
   }
 }
 

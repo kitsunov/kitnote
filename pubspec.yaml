@@ -27,6 +27,7 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.2
   url_launcher: ^6.3.1
+  vector_math: ^2.1.4
 
 dev_dependencies:
   flutter_test:

@@ -251,7 +251,7 @@ class PageManagerSheet extends StatelessWidget {
                                   } else if (action == 'template') {
                                     _showPageTemplateDialog(context, state, index, strings);
                                   } else if (action == 'delete') {
-                                    state.deletePageAt(index);
+                                    _confirmDeletePage(context, state, index, strings);
                                   }
                                 },
                               ),
@@ -349,6 +349,36 @@ class PageManagerSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _confirmDeletePage(
+    BuildContext context,
+    NotebookEditorState state,
+    int pageIndex,
+    AppStrings strings,
+  ) {
+    if (state.notebook.pages.length <= 1) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.deletePage),
+        content: Text('${strings.deletePage} ${pageIndex + 1}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              state.deletePageAt(pageIndex);
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.deletePage),
+          ),
+        ],
       ),
     );
   }

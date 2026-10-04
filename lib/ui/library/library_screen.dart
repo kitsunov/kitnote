@@ -277,7 +277,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   itemBuilder: (context, index) {
                     final notebook = notebooks[index];
                     final folder = notebook.folderId != null
-                        ? library.folders.firstWhere((f) => f.id == notebook.folderId, orElse: () => library.folders.first)
+                        ? library.folders.where((f) => f.id == notebook.folderId).firstOrNull
                         : null;
 
                     return NotebookCard(

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kitnote/models/image_element_model.dart';
 import 'package:kitnote/models/notebook_model.dart';
 import 'package:kitnote/models/page_model.dart';
 import 'package:kitnote/models/point_model.dart';
@@ -121,6 +122,127 @@ void main() {
       expect(fileSize, greaterThan(1000));
 
       // Clean up temporary file
+      try {
+        await exportedFile.delete();
+      } catch (_) {}
+    });
+
+    test('exportNotebookToPdf exports notebook with background and foreground images using rawBytes', () async {
+      final validPng = Uint8List.fromList([
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+        0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 10, 73, 68, 65, 84,
+        120, 156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78,
+        68, 174, 66, 96, 130
+      ]);
+
+      final notebook = NotebookModel(
+        id: 'nb_images_test',
+        title: 'Image Layers Test',
+        pages: [
+          PageModel(
+            id: 'page_img_1',
+            pageIndex: 0,
+            width: 800,
+            height: 1100,
+            imageElements: [
+              ImageElementModel(
+                id: 'bg_img',
+                x: 50,
+                y: 50,
+                width: 200,
+                height: 200,
+                isBackground: true,
+                rawBytes: validPng,
+              ),
+              ImageElementModel(
+                id: 'fg_img',
+                x: 100,
+                y: 100,
+                width: 150,
+                height: 150,
+                isBackground: false,
+                rawBytes: validPng,
+              ),
+            ],
+            strokes: const [
+              StrokeModel(
+                id: 'strk_mid',
+                points: [
+                  Point2D(x: 60, y: 60, timestamp: 0),
+                  Point2D(x: 160, y: 160, timestamp: 1),
+                ],
+                colorValue: 0xFF000000,
+                strokeWidth: 3.0,
+                opacity: 1.0,
+                toolType: ToolType.ballpointPen,
+              ),
+            ],
+          ),
+        ],
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      final exportedFile = await ExportService.exportNotebookToPdf(notebook);
+      expect(exportedFile, isNotNull);
+      expect(await exportedFile!.exists(), isTrue);
+      expect(await exportedFile.length(), greaterThan(500));
+
+      try {
+        await exportedFile.delete();
+      } catch (_) {}
+    });
+
+    test('exportNotebookToPdf exports rotated images and multi-line wrapped text elements', () async {
+      final validPng = Uint8List.fromList([
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+        0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 10, 73, 68, 65, 84,
+        120, 156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78,
+        68, 174, 66, 96, 130
+      ]);
+
+      final notebook = NotebookModel(
+        id: 'nb_rotated_and_text',
+        title: 'Rotated And Text Test',
+        pages: [
+          PageModel(
+            id: 'page_rot_1',
+            pageIndex: 0,
+            width: 800,
+            height: 1100,
+            imageElements: [
+              ImageElementModel(
+                id: 'rotated_img',
+                x: 100,
+                y: 100,
+                width: 150,
+                height: 150,
+                rotation: 0.785, // 45 degrees
+                rawBytes: validPng,
+              ),
+            ],
+            textElements: const [
+              TextElementModel(
+                id: 'multiline_txt',
+                text: 'Line 1: Title\nLine 2: A very long description that will be wrapped properly across lines without breaking the PDF structure.',
+                x: 80,
+                y: 300,
+                width: 250,
+                fontSize: 14,
+                colorValue: 0xFF0F172A,
+              ),
+            ],
+          ),
+        ],
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      final exportedFile = await ExportService.exportNotebookToPdf(notebook);
+      expect(exportedFile, isNotNull);
+      expect(await exportedFile!.exists(), isTrue);
+      expect(await exportedFile.length(), greaterThan(500));
+
       try {
         await exportedFile.delete();
       } catch (_) {}

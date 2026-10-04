@@ -98,8 +98,10 @@ class UpdateService {
   /// Downloads APK directly inside app and triggers native Android package installer
   static Future<void> downloadAndInstall(BuildContext context, String apkUrl) async {
     final ValueNotifier<double> progressNotifier = ValueNotifier<double>(0.0);
-    final ValueNotifier<String> statusNotifier = ValueNotifier<String>('Preparing...');
+    final ValueNotifier<String> statusNotifier = ValueNotifier<String>('Подготовка к загрузке...');
     final strings = AppLocalizations.of(context).strings;
+    final client = http.Client();
+    bool isCancelled = false;
 
     showDialog(
       context: context,
@@ -147,13 +149,27 @@ class UpdateService {
             ),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              isCancelled = true;
+              client.close();
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.cancel),
+          ),
+        ],
       ),
     );
 
+    File? partialFile;
     try {
-      final client = http.Client();
       final request = http.Request('GET', Uri.parse(apkUrl));
       final response = await client.send(request);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('HTTP error ${response.statusCode}');
+      }
 
       final contentLength = response.contentLength ?? 0;
       final tempDir = await getTemporaryDirectory();
@@ -161,6 +177,7 @@ class UpdateService {
       final remoteFileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'KitNote-v$currentVersion.apk';
       final fileName = remoteFileName.toLowerCase().endsWith('.apk') ? remoteFileName : 'KitNote-v$currentVersion.apk';
       final file = File('${tempDir.path}/$fileName');
+      partialFile = file;
       if (await file.exists()) {
         await file.delete();
       }
@@ -169,6 +186,7 @@ class UpdateService {
       int downloaded = 0;
 
       await for (final chunk in response.stream) {
+        if (isCancelled) break;
         downloaded += chunk.length;
         sink.add(chunk);
         if (contentLength > 0) {
@@ -176,11 +194,28 @@ class UpdateService {
           final downloadedMB = (downloaded / (1024 * 1024)).toStringAsFixed(1);
           final totalMB = (contentLength / (1024 * 1024)).toStringAsFixed(1);
           statusNotifier.value = 'Загрузка: $downloadedMB МБ из $totalMB МБ';
+        } else {
+          final downloadedMB = (downloaded / (1024 * 1024)).toStringAsFixed(1);
+          statusNotifier.value = 'Загрузка: $downloadedMB МБ';
         }
       }
 
       await sink.flush();
       await sink.close();
+
+      if (isCancelled) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+        return;
+      }
+
+      if (downloaded < 1024 * 1024) {
+        if (await file.exists()) {
+          await file.delete();
+        }
+        throw Exception('Загруженный файл неполный ($downloaded байт)');
+      }
 
       if (context.mounted) {
         Navigator.pop(context); // Close progress dialog
@@ -193,12 +228,20 @@ class UpdateService {
         await _channel.invokeMethod('installApk', {'filePath': file.path});
       }
     } catch (e) {
+      if (isCancelled) return;
+      if (partialFile != null && await partialFile.exists()) {
+        try {
+          await partialFile.delete();
+        } catch (_) {}
+      }
       if (context.mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Ошибка обновления: $e')),
         );
       }
+    } finally {
+      client.close();
     }
   }
 

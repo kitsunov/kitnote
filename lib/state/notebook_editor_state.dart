@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -340,7 +341,9 @@ class NotebookEditorState extends ChangeNotifier {
       pages: updatedPages,
       updatedAt: DateTime.now(),
     );
-    if (_currentPageIndex >= updatedPages.length) {
+    if (_currentPageIndex > index) {
+      _currentPageIndex--;
+    } else if (_currentPageIndex >= updatedPages.length) {
       _currentPageIndex = updatedPages.length - 1;
     }
     _scrollTargetPageIndex = _currentPageIndex;
@@ -822,7 +825,7 @@ class NotebookEditorState extends ChangeNotifier {
         final txt = currentPage.textElements[txtIdx];
         final transferred = txt.copyWith(
           y: prevPage.height + newPosition.dy,
-          x: newPosition.dx.clamp(0.0, prevPage.width - txt.width),
+          x: newPosition.dx.clamp(0.0, math.max(0.0, prevPage.width - txt.width)),
         );
         final currTxts = List<TextElementModel>.from(currentPage.textElements)..removeAt(txtIdx);
         final prevTxts = List<TextElementModel>.from(prevPage.textElements)..add(transferred);
@@ -846,7 +849,7 @@ class NotebookEditorState extends ChangeNotifier {
         final txt = currentPage.textElements[txtIdx];
         final transferred = txt.copyWith(
           y: newPosition.dy - currentPage.height,
-          x: newPosition.dx.clamp(0.0, nextPage.width - txt.width),
+          x: newPosition.dx.clamp(0.0, math.max(0.0, nextPage.width - txt.width)),
         );
         final currTxts = List<TextElementModel>.from(currentPage.textElements)..removeAt(txtIdx);
         final nextTxts = List<TextElementModel>.from(nextPage.textElements)..add(transferred);
@@ -915,7 +918,7 @@ class NotebookEditorState extends ChangeNotifier {
         final img = currentPage.imageElements[imgIdx];
         final transferred = img.copyWith(
           y: prevPage.height + newPosition.dy,
-          x: newPosition.dx.clamp(0.0, prevPage.width - img.width),
+          x: newPosition.dx.clamp(0.0, math.max(0.0, prevPage.width - img.width)),
         );
         final currImgs = List<ImageElementModel>.from(currentPage.imageElements)..removeAt(imgIdx);
         final prevImgs = List<ImageElementModel>.from(prevPage.imageElements)..add(transferred);
@@ -939,7 +942,7 @@ class NotebookEditorState extends ChangeNotifier {
         final img = currentPage.imageElements[imgIdx];
         final transferred = img.copyWith(
           y: newPosition.dy - currentPage.height,
-          x: newPosition.dx.clamp(0.0, nextPage.width - img.width),
+          x: newPosition.dx.clamp(0.0, math.max(0.0, nextPage.width - img.width)),
         );
         final currImgs = List<ImageElementModel>.from(currentPage.imageElements)..removeAt(imgIdx);
         final nextImgs = List<ImageElementModel>.from(nextPage.imageElements)..add(transferred);
@@ -1007,6 +1010,7 @@ class NotebookEditorState extends ChangeNotifier {
 
   void undo() {
     if (_undoStack.isEmpty) return;
+    _clearLassoSelection();
     final previous = _undoStack.removeLast();
     _redoStack.add(NotebookUndoState(
       pages: List<PageModel>.from(notebook.pages),
@@ -1028,6 +1032,7 @@ class NotebookEditorState extends ChangeNotifier {
 
   void redo() {
     if (_redoStack.isEmpty) return;
+    _clearLassoSelection();
     final next = _redoStack.removeLast();
     _undoStack.add(NotebookUndoState(
       pages: List<PageModel>.from(notebook.pages),

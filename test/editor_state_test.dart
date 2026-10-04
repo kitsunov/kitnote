@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kitnote/engine/shape_recognizer.dart';
 import 'package:kitnote/models/notebook_model.dart';
@@ -6,16 +7,20 @@ import 'package:kitnote/models/page_template_model.dart';
 import 'package:kitnote/models/point_model.dart';
 import 'package:kitnote/models/stroke_model.dart';
 import 'package:kitnote/models/tool_type.dart';
+import 'package:kitnote/services/storage_service.dart';
 import 'package:kitnote/state/notebook_editor_state.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('NotebookEditorState Tests', () {
+    late Directory tempDir;
     late NotebookModel testNotebook;
     late NotebookEditorState state;
 
-    setUp(() {
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('editor_state_test_');
+      StorageService.overrideBaseDir = tempDir;
       testNotebook = NotebookModel(
         id: 'nb_test',
         title: 'Test Notebook',
@@ -29,6 +34,14 @@ void main() {
         ],
       );
       state = NotebookEditorState(notebook: testNotebook);
+    });
+
+    tearDown(() async {
+      await Future.delayed(const Duration(milliseconds: 10));
+      StorageService.overrideBaseDir = null;
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
     });
 
     test('addTextElement and updateTextElement correctly modify page text', () {
@@ -403,6 +416,75 @@ void main() {
 
       // Should be split into 2 sub-strokes
       expect(state.currentPage.strokes.length, equals(2));
+    });
+
+    test('cross-page drag does not throw when element width exceeds page width', () {
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(2));
+      state.setActivePageIndex(1);
+
+      // Create an oversized text element (width 900 on 800px page)
+      state.addTextElement('Oversized text box', const Offset(50, 50));
+      final txt = state.currentPage.textElements.first;
+      state.updateTextElement(txt.copyWith(width: 900.0));
+
+      // Drag upward onto page 0
+      expect(() => state.moveTextElementWithCrossPage(txt.id, const Offset(100, -60)), returnsNormally);
+      expect(state.currentPageIndex, equals(0));
+
+      // Create an oversized image element (width 1200 on 800px page)
+      state.addImageElement('/dummy/path.png', const Offset(50, 50), 1200.0, 400.0);
+      final img = state.currentPage.imageElements.first;
+
+      // Drag downward onto page 1
+      expect(() => state.moveImageElementWithCrossPage(img.id, Offset(100, state.currentPage.height + 40)), returnsNormally);
+      expect(state.currentPageIndex, equals(1));
+    });
+
+    test('undo and redo clear active lasso selection', () {
+      state.setTool(ToolType.ballpointPen);
+      state.startStroke(const Point2D(x: 10, y: 10, timestamp: 0));
+      state.appendStrokePoint(const Point2D(x: 20, y: 20, timestamp: 1));
+      state.finishStroke();
+      expect(state.currentPage.strokes.length, equals(1));
+
+      // Set lasso selection
+      state.setTool(ToolType.lasso);
+      state.startStroke(const Point2D(x: 0, y: 0, timestamp: 0));
+      state.appendStrokePoint(const Point2D(x: 30, y: 0, timestamp: 1));
+      state.appendStrokePoint(const Point2D(x: 30, y: 30, timestamp: 2));
+      state.appendStrokePoint(const Point2D(x: 0, y: 30, timestamp: 3));
+      state.finishStroke();
+      expect(state.selectedStrokeIds.isNotEmpty, isTrue);
+
+      // Undo stroke creation
+      state.undo();
+      expect(state.selectedStrokeIds.isEmpty, isTrue);
+      expect(state.selectedTextIds.isEmpty, isTrue);
+      expect(state.selectedImageIds.isEmpty, isTrue);
+      expect(state.lassoBoundingBox, isNull);
+
+      // Redo stroke creation
+      state.redo();
+      expect(state.selectedStrokeIds.isEmpty, isTrue);
+      expect(state.selectedTextIds.isEmpty, isTrue);
+      expect(state.selectedImageIds.isEmpty, isTrue);
+      expect(state.lassoBoundingBox, isNull);
+    });
+
+    test('deletePageAt decrements currentPageIndex when deleting an earlier page', () {
+      state.addNewPage();
+      state.addNewPage();
+      expect(state.notebook.pages.length, equals(3));
+
+      // User navigates to page 2 (index 2)
+      state.setActivePageIndex(2);
+      expect(state.currentPageIndex, equals(2));
+
+      // Deleting page 0 shifts page 2 into page 1
+      state.deletePageAt(0);
+      expect(state.notebook.pages.length, equals(2));
+      expect(state.currentPageIndex, equals(1));
     });
   });
 }

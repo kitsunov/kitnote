@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -216,7 +217,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
           ],
         ),
       ),
-    );
+    ).then((_) => controller.dispose());
   }
 
   void _confirmDeleteImage(BuildContext context, NotebookEditorState state, String id) {
@@ -344,8 +345,13 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 ),
 
               // Lasso Selection Actions Bar
-              if (state.selectedStrokeIds.isNotEmpty)
-                Positioned(
+              () {
+                final totalSelected = state.selectedStrokeIds.length +
+                    state.selectedTextIds.length +
+                    state.selectedImageIds.length;
+                if (totalSelected == 0) return const SizedBox.shrink();
+
+                return Positioned(
                   top: 16,
                   right: 16,
                   child: Material(
@@ -358,7 +364,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '${state.selectedStrokeIds.length} ${strings.lasso}',
+                            '$totalSelected ${strings.lasso}',
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(width: 6),
@@ -376,7 +382,8 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                       ),
                     ),
                   ),
-                ),
+                );
+              }(),
             ],
           ),
         );
@@ -750,18 +757,45 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
     }
 
     for (final txt in page.textElements) {
-      final approxHeight = (txt.fontSize * 2.5).clamp(40.0, 300.0);
+      final lines = txt.text.split('\n');
+      final avgCharWidth = txt.fontSize * 0.6;
+      final availableWidth = math.max(20.0, txt.width - 16.0);
+      int estimatedLineCount = 0;
+      for (final line in lines) {
+        final lineChars = line.isEmpty ? 1 : line.length;
+        estimatedLineCount += math.max(1, (lineChars * avgCharWidth / availableWidth).ceil());
+      }
+      final approxHeight = math.max(40.0, estimatedLineCount * (txt.fontSize * 1.35) + 24.0);
       final rect = Rect.fromLTWH(txt.x - 12, txt.y - 12, txt.width + 24, approxHeight + 24);
-      if (rect.contains(canvasPt)) {
+      final deleteBadgeRect = Rect.fromLTWH(txt.x + txt.width - 16, txt.y - 16, 32, 32);
+      final resizeBadgeRect = Rect.fromLTWH(txt.x + txt.width - 16, txt.y + approxHeight - 16, 32, 32);
+
+      if (rect.contains(canvasPt) || deleteBadgeRect.contains(canvasPt) || resizeBadgeRect.contains(canvasPt)) {
         return true;
       }
     }
 
     for (final img in page.imageElements) {
-      if (img.isBackground) continue;
-      final rect = Rect.fromLTWH(img.x - 12, img.y - 12, img.width + 24, img.height + 24);
-      if (rect.contains(canvasPt)) {
+      if (state.activeTool == ToolType.image) {
+        final rect = Rect.fromLTWH(img.x - 12, img.y - 12, img.width + 24, img.height + 24);
+        if (rect.contains(canvasPt)) {
+          return true;
+        }
+      }
+
+      final layerToggleRect = Rect.fromLTWH(img.x - 16, img.y - 16, 36, 36);
+      final deleteRect = Rect.fromLTWH(img.x + img.width - 20, img.y - 16, 36, 36);
+      final resizeRect = Rect.fromLTWH(img.x + img.width - 16, img.y + img.height - 16, 36, 36);
+
+      if (layerToggleRect.contains(canvasPt) || deleteRect.contains(canvasPt) || resizeRect.contains(canvasPt)) {
         return true;
+      }
+
+      if (!img.isBackground) {
+        final rect = Rect.fromLTWH(img.x - 12, img.y - 12, img.width + 24, img.height + 24);
+        if (rect.contains(canvasPt)) {
+          return true;
+        }
       }
     }
 
@@ -813,9 +847,9 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     width: 1.5,
                   ),
                 ),
-                child: img.localPath != null
-                    ? Image.file(
-                        File(img.localPath!),
+                child: img.rawBytes != null
+                    ? Image.memory(
+                        img.rawBytes!,
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => Container(
                           color: Colors.grey.shade200,
@@ -824,10 +858,21 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                           ),
                         ),
                       )
-                    : Container(
-                        color: Colors.blue.shade100,
-                        child: const Icon(Icons.image, size: 48, color: Colors.blue),
-                      ),
+                    : (img.localPath != null
+                        ? Image.file(
+                            File(img.localPath!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: Colors.grey.shade200,
+                              child: const Center(
+                                child: Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                              ),
+                            ),
+                          )
+                        : Container(
+                            color: Colors.blue.shade100,
+                            child: const Icon(Icons.image, size: 48, color: Colors.blue),
+                          )),
               ),
             ),
             // Layer toggle badge at top-left
@@ -999,7 +1044,8 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 final scale = _transformController.value.getMaxScaleOnAxis();
                 final effectiveScale = scale > 0 ? scale : 1.0;
                 final delta = details.delta / effectiveScale;
-                final newWidth = (txt.width + delta.dx).clamp(80.0, page.width - txt.x);
+                final maxWidth = math.max(80.0, page.width - txt.x);
+                final newWidth = (txt.width + delta.dx).clamp(80.0, maxWidth);
                 final widthRatio = newWidth / txt.width;
                 final newFontSize = (txt.fontSize * widthRatio).clamp(10.0, 72.0);
                 state.updateTextElement(txt.copyWith(

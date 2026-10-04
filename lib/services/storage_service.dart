@@ -10,10 +10,19 @@ class StorageService {
   factory StorageService() => _instance;
   StorageService._internal();
 
+  static Directory? overrideBaseDir;
   Directory? _baseDir;
 
   Future<Directory> get baseDir async {
-    if (_baseDir != null && await _baseDir!.exists()) return _baseDir!;
+    final override = overrideBaseDir;
+    if (override != null) {
+      if (!await override.exists()) {
+        await override.create(recursive: true);
+      }
+      return override;
+    }
+    final cached = _baseDir;
+    if (cached != null && await cached.exists()) return cached;
     final appDir = await getApplicationDocumentsDirectory();
     final kitNoteDir = Directory('${appDir.path}/kitnote_data');
     if (!await kitNoteDir.exists()) {
@@ -197,7 +206,11 @@ class StorageService {
     final previous = _saveQueues[notebookId] ?? Future.value(true);
     final task = previous.then((_) => _deleteNotebookFiles(notebookId));
     _saveQueues[notebookId] = task;
-    await task;
+    try {
+      await task;
+    } finally {
+      _deletedNotebookIds.remove(notebookId);
+    }
   }
 
   Future<bool> _deleteNotebookFiles(String notebookId) async {

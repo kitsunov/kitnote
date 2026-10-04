@@ -447,7 +447,7 @@ class EditorToolbar extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).then((_) => controller.dispose());
   }
 
   void _showAddColorDialog(

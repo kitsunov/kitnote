@@ -88,9 +88,11 @@ class WorkspaceState extends ChangeNotifier {
         _secondaryNotebookId = secondaryId;
         _isSplitScreen = true;
       } else if (_openNotebookIds.length > 1) {
-        // Automatically choose another open tab for the second half of the screen
-        final other = _openNotebookIds.firstWhere((id) => id != primaryNotebookId);
-        _secondaryNotebookId = other;
+        final other = _openNotebookIds.firstWhere(
+          (id) => id != primaryNotebookId,
+          orElse: () => primaryNotebookId ?? (_openNotebookIds.isNotEmpty ? _openNotebookIds.first : ''),
+        );
+        _secondaryNotebookId = other.isNotEmpty ? other : primaryNotebookId;
         _isSplitScreen = true;
       } else {
         // Duplicate current view for split reference

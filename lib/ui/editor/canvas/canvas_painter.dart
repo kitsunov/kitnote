@@ -149,7 +149,9 @@ class CanvasPainter extends CustomPainter {
           press1 = speedFactor;
         }
 
-        final w = (baseWidth * (0.35 + 0.85 * ((press0 + press1) / 2))).clamp(1.0, baseWidth * 2.2);
+        final minWidth = math.min(0.2, baseWidth * 0.2);
+        final maxWidth = math.max(minWidth, baseWidth * 2.2);
+        final w = (baseWidth * (0.35 + 0.85 * ((press0 + press1) / 2))).clamp(minWidth, maxWidth);
 
         final segPaint = Paint()
           ..color = baseColor
@@ -183,7 +185,9 @@ class CanvasPainter extends CustomPainter {
         final angleFactor = 0.45 + 0.75 * math.sin(angle + math.pi / 4).abs();
 
         final p0Press = p0.pressure > 0 ? p0.pressure : 0.8;
-        final w = (baseWidth * angleFactor * taper * (0.5 + 0.6 * p0Press)).clamp(1.0, baseWidth * 2.5);
+        final minWidth = math.min(0.2, baseWidth * 0.2);
+        final maxWidth = math.max(minWidth, baseWidth * 2.5);
+        final w = (baseWidth * angleFactor * taper * (0.5 + 0.6 * p0Press)).clamp(minWidth, maxWidth);
 
         final segPaint = Paint()
           ..color = baseColor

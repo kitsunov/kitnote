@@ -35,10 +35,8 @@ class MultiTabBar extends StatelessWidget {
               itemCount: openIds.length,
               itemBuilder: (context, index) {
                 final id = openIds[index];
-                final notebook = library.notebooks.firstWhere(
-                  (n) => n.id == id,
-                  orElse: () => library.notebooks.first,
-                );
+                final notebook = library.notebooks.where((n) => n.id == id).firstOrNull;
+                if (notebook == null) return const SizedBox.shrink();
                 final isActive = index == workspace.activeTabIndex;
                 final isSecondary = workspace.isSplitScreen && workspace.secondaryNotebookId == id;
 

@@ -100,5 +100,16 @@ void main() {
       expect(workspace.primaryNotebookId, equals('nb_B'));
       expect(workspace.activeTabIndex, equals(0));
     });
+
+    test('toggleSplitScreen does not throw when openNotebookIds contains duplicate or identical IDs', () {
+      final workspace = WorkspaceState();
+      workspace.openNotebook('nb_A');
+      workspace.openNotebook('nb_A');
+
+      // Toggling split screen should safely handle finding other tab or duplicating view
+      expect(() => workspace.toggleSplitScreen(null), returnsNormally);
+      expect(workspace.isSplitScreen, isTrue);
+      expect(workspace.secondaryNotebookId, equals('nb_A'));
+    });
   });
 }
