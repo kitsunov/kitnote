@@ -22,6 +22,17 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def keyProperties = new Properties()
+def keyPropertiesFile = rootProject.file('key.properties')
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.withReader('UTF-8') { reader ->
+        keyProperties.load(reader)
+    }
+}
+
+def keystorePath = keyProperties.getProperty('storeFile') ?: System.getenv('KEYSTORE_PATH')
+def hasReleaseKeystore = keystorePath != null && rootProject.file(keystorePath).exists()
+
 android {
     namespace "com.kitnote.app"
     compileSdk 36
@@ -49,9 +60,20 @@ android {
         multiDexEnabled true
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            release {
+                storeFile rootProject.file(keystorePath)
+                storePassword keyProperties.getProperty('storePassword') ?: System.getenv('STORE_PASSWORD')
+                keyAlias keyProperties.getProperty('keyAlias') ?: System.getenv('KEY_ALIAS')
+                keyPassword keyProperties.getProperty('keyPassword') ?: System.getenv('KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }

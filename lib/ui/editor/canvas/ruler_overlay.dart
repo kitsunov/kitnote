@@ -5,6 +5,7 @@ class RulerOverlay extends StatelessWidget {
   final Offset position;
   final double angle; // In radians
   final Function(Offset delta, double angleDelta) onTransform;
+  final VoidCallback? onSnapAngle;
   final VoidCallback onClose;
 
   const RulerOverlay({
@@ -12,6 +13,7 @@ class RulerOverlay extends StatelessWidget {
     required this.position,
     required this.angle,
     required this.onTransform,
+    this.onSnapAngle,
     required this.onClose,
   });
 
@@ -26,16 +28,23 @@ class RulerOverlay extends StatelessWidget {
       child: Transform.rotate(
         angle: angle,
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onPanUpdate: (details) {
-            onTransform(details.delta, 0.0);
+            final cosA = math.cos(angle);
+            final sinA = math.sin(angle);
+            final parentDelta = Offset(
+              details.delta.dx * cosA - details.delta.dy * sinA,
+              details.delta.dx * sinA + details.delta.dy * cosA,
+            );
+            onTransform(parentDelta, 0.0);
           },
           child: Container(
             width: rulerWidth,
             height: rulerHeight,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.85),
+              color: Colors.white.withValues(alpha: 0.88),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.5), width: 1.5),
+              border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.65), width: 1.5),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.12),
@@ -46,13 +55,13 @@ class RulerOverlay extends StatelessWidget {
             ),
             child: Stack(
               children: [
-                // Top scale marks (cm / mm)
+                // Top and bottom scale marks (cm / mm)
                 CustomPaint(
                   size: const Size(rulerWidth, rulerHeight),
                   painter: _RulerTicksPainter(),
                 ),
 
-                // Center handle with degree readout
+                // Center handle with degree readout (tap to snap to 0°/45°/90°/135°)
                 Center(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -62,19 +71,22 @@ class RulerOverlay extends StatelessWidget {
                         icon: const Icon(Icons.rotate_left, size: 20, color: Colors.blueGrey),
                         onPressed: () => onTransform(Offset.zero, -math.pi / 36), // -5 deg
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.blue.shade200),
-                        ),
-                        child: Text(
-                          '${((angle * 180 / math.pi) % 360).round()}°',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade800,
+                      GestureDetector(
+                        onTap: onSnapAngle,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade200),
+                          ),
+                          child: Text(
+                            '${((angle * 180 / math.pi) % 360).round()}°',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue.shade800,
+                            ),
                           ),
                         ),
                       ),
@@ -127,8 +139,16 @@ class _RulerTicksPainter extends CustomPainter {
       final isHalfCm = (cmIndex % 5) == 0;
 
       final tickLength = isCm ? 18.0 : (isHalfCm ? 12.0 : 7.0);
+      final bottomTickLength = isCm ? 12.0 : (isHalfCm ? 8.0 : 4.5);
 
+      // Top edge ticks
       canvas.drawLine(Offset(x, 0), Offset(x, tickLength), tickPaint);
+      // Bottom edge ticks
+      canvas.drawLine(
+        Offset(x, size.height),
+        Offset(x, size.height - bottomTickLength),
+        tickPaint,
+      );
 
       if (isCm) {
         final textPainter = TextPainter(

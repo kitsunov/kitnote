@@ -25,6 +25,12 @@ class NotebookEditorView extends StatelessWidget {
       );
     }
 
+    if (library.isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final primaryNotebook = library.notebooks.where((n) => n.id == primaryId).firstOrNull;
     if (primaryNotebook == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

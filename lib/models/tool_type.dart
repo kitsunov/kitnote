@@ -11,6 +11,7 @@ enum ToolType {
   ruler,
   textBox,
   image,
+  laserPointer,
 }
 
 extension ToolTypeExtension on ToolType {
@@ -36,6 +37,8 @@ extension ToolTypeExtension on ToolType {
         return s.text;
       case ToolType.image:
         return s.photo;
+      case ToolType.laserPointer:
+        return 'Laser';
     }
   }
 
@@ -61,6 +64,8 @@ extension ToolTypeExtension on ToolType {
         return 'Текст';
       case ToolType.image:
         return 'Изображение';
+      case ToolType.laserPointer:
+        return 'Лазерная указка';
     }
   }
 

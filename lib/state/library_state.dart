@@ -4,12 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../engine/pdf_virtual_cache.dart';
 import '../models/folder_model.dart';
+import '../models/image_element_model.dart';
 import '../models/notebook_model.dart';
 import '../models/page_model.dart';
 import '../models/page_template_model.dart';
 import '../services/google_drive_service.dart';
 import '../services/storage_service.dart';
 import 'notebook_editor_state.dart';
+
+enum LibrarySortOrder {
+  updatedDesc,
+  titleAsc,
+  pageCountDesc,
+}
 
 class LibraryState extends ChangeNotifier {
   final StorageService _storage = StorageService();
@@ -19,6 +26,7 @@ class LibraryState extends ChangeNotifier {
   List<FolderModel> _folders = [];
   String? _selectedFolderId;
   String _searchQuery = '';
+  LibrarySortOrder _sortOrder = LibrarySortOrder.updatedDesc;
   bool _isLoading = false;
   bool _isViewingTrash = false;
 
@@ -26,11 +34,23 @@ class LibraryState extends ChangeNotifier {
   List<FolderModel> get folders => _folders;
   String? get selectedFolderId => _selectedFolderId;
   String get searchQuery => _searchQuery;
+  LibrarySortOrder get sortOrder => _sortOrder;
   bool get isLoading => _isLoading;
   bool get isViewingTrash => _isViewingTrash;
   int get trashCount => _notebooks.where((nb) => nb.isDeleted).length;
   List<NotebookModel> get trashNotebooks => _notebooks.where((nb) => nb.isDeleted).toList();
   GoogleDriveService get googleDrive => _googleDrive;
+
+  List<String> get allAvailableTags {
+    final tagSet = <String>{};
+    for (final nb in _notebooks) {
+      if (!nb.isDeleted) {
+        tagSet.addAll(nb.tags);
+      }
+    }
+    final list = tagSet.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
+  }
 
   LibraryState({bool autoInit = true}) {
     if (autoInit) {
@@ -69,8 +89,15 @@ class LibraryState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setSortOrder(LibrarySortOrder order) {
+    if (_sortOrder != order) {
+      _sortOrder = order;
+      notifyListeners();
+    }
+  }
+
   List<NotebookModel> get filteredNotebooks {
-    return _notebooks.where((nb) {
+    final filtered = _notebooks.where((nb) {
       if (_isViewingTrash) {
         if (!nb.isDeleted) return false;
       } else {
@@ -83,10 +110,42 @@ class LibraryState extends ChangeNotifier {
         final query = _searchQuery.toLowerCase();
         final matchesTitle = nb.title.toLowerCase().contains(query);
         final matchesTag = nb.tags.any((t) => t.toLowerCase().contains(query));
-        return matchesTitle || matchesTag;
+        final matchesPageText = nb.pages.any(
+          (page) => page.textElements.any((t) => t.text.toLowerCase().contains(query)),
+        );
+        return matchesTitle || matchesTag || matchesPageText;
       }
       return true;
     }).toList();
+
+    filtered.sort((a, b) {
+      if (a.isPinned != b.isPinned) {
+        return a.isPinned ? -1 : 1;
+      }
+      switch (_sortOrder) {
+        case LibrarySortOrder.updatedDesc:
+          return b.updatedAt.compareTo(a.updatedAt);
+        case LibrarySortOrder.titleAsc:
+          return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        case LibrarySortOrder.pageCountDesc:
+          final cmp = b.pageCount.compareTo(a.pageCount);
+          return cmp != 0 ? cmp : b.updatedAt.compareTo(a.updatedAt);
+      }
+    });
+    return filtered;
+  }
+
+  /// Finds the first 0-based page index where a text element matches the search query.
+  int? findFirstMatchingPageIndex(NotebookModel nb, [String? customQuery]) {
+    final q = (customQuery ?? _searchQuery).trim().toLowerCase();
+    if (q.isEmpty) return null;
+    for (int i = 0; i < nb.pages.length; i++) {
+      final hasMatch = nb.pages[i].textElements.any(
+        (t) => t.text.toLowerCase().contains(q),
+      );
+      if (hasMatch) return i;
+    }
+    return null;
   }
 
   Future<NotebookModel> createNotebook({
@@ -112,12 +171,100 @@ class LibraryState extends ChangeNotifier {
     return notebook;
   }
 
-  /// Import a PDF file and create a dedicated annotation notebook for it
+  /// Creates an independent deep copy of an existing notebook (including PDF and embedded images).
+  Future<NotebookModel?> duplicateNotebook(String notebookId, {String? copyTitle}) async {
+    final sourceIndex = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (sourceIndex == -1) return null;
+    final source = _notebooks[sourceIndex];
+    final newId = const Uuid().v4();
+
+    String? newPdfPath = source.sourcePdfPath;
+    if (source.sourcePdfPath != null && source.sourcePdfPath!.isNotEmpty) {
+      final srcPdf = File(source.sourcePdfPath!);
+      if (await srcPdf.exists()) {
+        final pdfsDir = await _storage.pdfsDir;
+        newPdfPath = '${pdfsDir.path}/$newId.pdf';
+        await srcPdf.copy(newPdfPath);
+      }
+    }
+
+    final copiedPages = <PageModel>[];
+    for (int i = 0; i < source.pages.length; i++) {
+      final p = source.pages[i];
+      final copiedImages = <ImageElementModel>[];
+      for (final img in p.imageElements) {
+        final newImgId = const Uuid().v4();
+        String? newImgPath = img.localPath;
+        if (img.localPath != null && img.localPath!.isNotEmpty) {
+          final srcFile = File(img.localPath!);
+          if (await srcFile.exists()) {
+            newImgPath = await _storage.copyImageToPermanentStorage(
+              img.localPath!,
+              newId,
+              newImgId,
+            );
+          }
+        }
+        copiedImages.add(img.copyWith(id: newImgId, localPath: newImgPath));
+      }
+
+      copiedPages.add(
+        p.copyWith(
+          id: '${newId}_p$i',
+          pageIndex: i,
+          imageElements: copiedImages,
+        ),
+      );
+    }
+
+    final now = DateTime.now();
+    final duplicated = NotebookModel(
+      id: newId,
+      title: (copyTitle != null && copyTitle.trim().isNotEmpty)
+          ? copyTitle.trim()
+          : '${source.title} (Copy)',
+      folderId: source.folderId,
+      createdAt: now,
+      updatedAt: now,
+      coverColor: source.coverColor,
+      sourcePdfPath: newPdfPath,
+      pdfTotalPages: source.pdfTotalPages,
+      isDeleted: false,
+      isPinned: false,
+      tags: List<String>.from(source.tags),
+      pages: copiedPages,
+    );
+
+    _notebooks.insert(0, duplicated);
+    await _storage.saveNotebook(duplicated);
+    notifyListeners();
+    return duplicated;
+  }
+
+  /// Exports a full editable `.kitnote` backup file for [notebook].
+  Future<File?> exportNotebookBackup(NotebookModel notebook, {String? targetFilePath}) {
+    return _storage.exportKitNoteBackup(notebook, targetFilePath: targetFilePath);
+  }
+
+  /// Imports a `.kitnote` backup file from disk and adds it to the library.
+  Future<NotebookModel?> importNotebookBackupFromFile(String filePath) async {
+    final restored = await _storage.importKitNoteBackup(
+      filePath,
+      newNotebookId: const Uuid().v4(),
+    );
+    if (restored != null) {
+      _notebooks.insert(0, restored);
+      notifyListeners();
+    }
+    return restored;
+  }
+
+  /// Import a PDF file (or `.kitnote` backup archive) and create a notebook for it
   Future<NotebookModel?> importPdfNotebook() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: ['pdf', 'kitnote'],
       );
 
       if (result == null || result.files.isEmpty) return null;
@@ -126,6 +273,10 @@ class LibraryState extends ChangeNotifier {
       final name = result.files.single.name;
       final rawBytes = result.files.single.bytes;
       if (path == null && rawBytes == null) return null;
+
+      if (name.toLowerCase().endsWith('.kitnote') && path != null) {
+        return await importNotebookBackupFromFile(path);
+      }
 
       final id = const Uuid().v4();
       final title = name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
@@ -144,8 +295,7 @@ class LibraryState extends ChangeNotifier {
       // Dynamically resolve total page count from PDF binary
       int totalPages = 1;
       if (await targetFile.exists()) {
-        final bytes = await targetFile.readAsBytes();
-        totalPages = PdfVirtualCache.getPdfPageCountFromBytes(bytes);
+        totalPages = await PdfVirtualCache.getPdfPageCountFromFile(targetFile);
       } else if (rawBytes != null) {
         totalPages = PdfVirtualCache.getPdfPageCountFromBytes(rawBytes);
       }
@@ -202,6 +352,22 @@ class LibraryState extends ChangeNotifier {
     return editor;
   }
 
+  void releaseEditor(String notebookId) {
+    final editor = _activeEditors.remove(notebookId);
+    if (editor != null) {
+      final pdfPath = editor.notebook.sourcePdfPath;
+      if (pdfPath != null && pdfPath.isNotEmpty) {
+        PdfVirtualCache().clearForPdf(pdfPath);
+      }
+      editor.dispose();
+    } else {
+      final nb = _notebooks.where((n) => n.id == notebookId).firstOrNull;
+      if (nb?.sourcePdfPath != null) {
+        PdfVirtualCache().clearForPdf(nb!.sourcePdfPath!);
+      }
+    }
+  }
+
   void syncNotebookInMemory(NotebookModel updated) {
     final index = _notebooks.indexWhere((n) => n.id == updated.id);
     if (index != -1) {
@@ -249,7 +415,7 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<void> deleteNotebookPermanently(String notebookId) async {
-    _activeEditors.remove(notebookId)?.dispose();
+    releaseEditor(notebookId);
     _notebooks.removeWhere((n) => n.id == notebookId);
     await _storage.deleteNotebook(notebookId);
     notifyListeners();
@@ -258,11 +424,64 @@ class LibraryState extends ChangeNotifier {
   Future<void> emptyTrash() async {
     final toDelete = _notebooks.where((n) => n.isDeleted).map((n) => n.id).toList();
     for (final id in toDelete) {
-      _activeEditors.remove(id)?.dispose();
+      releaseEditor(id);
       await _storage.deleteNotebook(id);
     }
     _notebooks.removeWhere((n) => n.isDeleted);
     notifyListeners();
+  }
+
+  Future<void> renameNotebook(
+    String notebookId,
+    String newTitle, {
+    int? coverColor,
+    List<String>? tags,
+  }) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty) return;
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final updated = _notebooks[index].copyWith(
+        title: trimmed,
+        coverColor: coverColor,
+        tags: tags,
+        updatedAt: DateTime.now(),
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
+  }
+
+  Future<void> togglePinNotebook(String notebookId) async {
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final current = _notebooks[index];
+      final updated = current.copyWith(
+        isPinned: !current.isPinned,
+        updatedAt: DateTime.now(),
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateNotebookTags(String notebookId, List<String> tags) async {
+    final index = _notebooks.indexWhere((n) => n.id == notebookId);
+    if (index != -1) {
+      final cleaned = tags.map((t) => t.trim()).where((t) => t.isNotEmpty).toSet().toList();
+      final updated = _notebooks[index].copyWith(
+        tags: cleaned,
+        updatedAt: DateTime.now(),
+      );
+      _notebooks[index] = updated;
+      _activeEditors[notebookId]?.syncNotebook(updated);
+      await _storage.saveNotebook(updated);
+      notifyListeners();
+    }
   }
 
   Future<void> moveNotebookToFolder(String notebookId, String? folderId) async {
@@ -297,6 +516,24 @@ class LibraryState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> renameFolder(
+    String folderId,
+    String newName, {
+    int? colorValue,
+  }) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return;
+    final index = _folders.indexWhere((f) => f.id == folderId);
+    if (index != -1) {
+      _folders[index] = _folders[index].copyWith(
+        name: trimmed,
+        colorValue: colorValue,
+      );
+      await _storage.saveFolders(_folders);
+      notifyListeners();
+    }
+  }
+
   Future<void> deleteFolder(String folderId) async {
     _folders.removeWhere((f) => f.id == folderId);
     // Unassign folder from notebooks
@@ -316,7 +553,17 @@ class LibraryState extends ChangeNotifier {
 
   // Google Drive Sync
   Future<void> triggerSync() async {
-    await _googleDrive.syncAll(_notebooks);
+    final downloaded = await _googleDrive.syncAll(_notebooks);
+    for (final remoteNb in downloaded) {
+      final existingIndex = _notebooks.indexWhere((n) => n.id == remoteNb.id);
+      if (existingIndex != -1) {
+        _notebooks[existingIndex] = remoteNb;
+        _activeEditors[remoteNb.id]?.syncNotebook(remoteNb);
+      } else {
+        _notebooks.insert(0, remoteNb);
+      }
+      await _storage.saveNotebook(remoteNb);
+    }
     notifyListeners();
   }
 

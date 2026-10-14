@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
+import '../services/storage_service.dart';
 
 class PdfPageRenderRequest {
   final String pdfPath;
@@ -16,6 +18,11 @@ class PdfPageRenderRequest {
   });
 
   String get cacheKey => '${pdfPath}_p${pageIndex}_s$scale';
+
+  String get diskFileName {
+    final pathHash = pdfPath.hashCode.toUnsigned(32).toRadixString(16);
+    return 'pdf_${pathHash}_p${pageIndex}_s${scale.toInt()}.png';
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -39,10 +46,36 @@ class PdfVirtualCache {
   final LinkedHashMap<String, Uint8List> _cache = LinkedHashMap();
   final Map<String, Future<Uint8List?>> _inFlightRenders = {};
   final LinkedHashMap<String, Uint8List> _docBytesCache = LinkedHashMap();
+  Directory? _diskCacheDir;
 
   // Concurrency throttling (max 2 parallel renders)
   int _activeRenders = 0;
   final Queue<void Function()> _renderQueue = Queue();
+
+  Future<Directory?> _getDiskCacheDir() async {
+    try {
+      final override = StorageService.overrideBaseDir;
+      if (override != null) {
+        final dir = Directory('${override.path}/pdf_page_cache');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      }
+      if (_diskCacheDir != null && await _diskCacheDir!.exists()) {
+        return _diskCacheDir;
+      }
+      final tmp = await getTemporaryDirectory();
+      final dir = Directory('${tmp.path}/kitnote_pdf_cache');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      _diskCacheDir = dir;
+      return dir;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Uint8List? getPage(PdfPageRenderRequest request) {
     final key = request.cacheKey;
@@ -109,6 +142,22 @@ class PdfVirtualCache {
   }
 
   Future<Uint8List?> _renderPageInternal(PdfPageRenderRequest request) async {
+    // 1. Check disk cache before acquiring rasterizer slot
+    try {
+      final cacheDir = await _getDiskCacheDir();
+      if (cacheDir != null) {
+        final diskFile = File('${cacheDir.path}/${request.diskFileName}');
+        if (await diskFile.exists()) {
+          final diskBytes = await diskFile.readAsBytes();
+          if (diskBytes.isNotEmpty) {
+            putPage(request, diskBytes);
+            _inFlightRenders.remove(request.cacheKey);
+            return diskBytes;
+          }
+        }
+      }
+    } catch (_) {}
+
     if (_activeRenders >= 2) {
       final completer = Completer<void>();
       _renderQueue.add(completer.complete);
@@ -126,6 +175,15 @@ class PdfVirtualCache {
       await for (final raster in Printing.raster(docBytes, pages: [request.pageIndex], dpi: request.scale)) {
         final pngBytes = await raster.toPng();
         putPage(request, pngBytes);
+        // Save to disk cache asynchronously
+        _getDiskCacheDir().then((cacheDir) async {
+          if (cacheDir != null) {
+            try {
+              final diskFile = File('${cacheDir.path}/${request.diskFileName}');
+              await diskFile.writeAsBytes(pngBytes, flush: false);
+            } catch (_) {}
+          }
+        });
         return pngBytes;
       }
     } catch (e) {
@@ -268,6 +326,37 @@ class PdfVirtualCache {
       return 1;
     } catch (e) {
       debugPrint('[PdfVirtualCache] Page count parsing error: $e');
+      return 1;
+    }
+  }
+
+  /// Memory-safe page count scanner that avoids loading 100MB+ PDFs into RAM at once
+  static Future<int> getPdfPageCountFromFile(File file) async {
+    try {
+      if (!await file.exists()) return 1;
+      final fileLen = await file.length();
+      const maxFullReadBytes = 8 * 1024 * 1024; // 8 MB
+      if (fileLen <= maxFullReadBytes) {
+        final bytes = await file.readAsBytes();
+        return getPdfPageCountFromBytes(bytes);
+      }
+
+      // For very large PDFs (>8MB), read head (4MB) + tail (4MB) where /Pages catalog resides
+      const chunkSize = 4 * 1024 * 1024;
+      final raf = await file.open(mode: FileMode.read);
+      try {
+        final head = await raf.read(chunkSize);
+        await raf.setPosition(fileLen - chunkSize);
+        final tail = await raf.read(chunkSize);
+        final combined = Uint8List(head.length + tail.length);
+        combined.setRange(0, head.length, head);
+        combined.setRange(head.length, combined.length, tail);
+        return getPdfPageCountFromBytes(combined);
+      } finally {
+        await raf.close();
+      }
+    } catch (e) {
+      debugPrint('[PdfVirtualCache] File page count error: $e');
       return 1;
     }
   }

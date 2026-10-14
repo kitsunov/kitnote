@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +26,7 @@ class GoogleDriveService extends ChangeNotifier {
     ],
   );
 
+  StreamSubscription<GoogleSignInAccount?>? _authSubscription;
   GoogleSignInAccount? _currentUser;
   drive.DriveApi? _driveApi;
   SyncStatus _status = SyncStatus.disconnected;
@@ -38,7 +40,8 @@ class GoogleDriveService extends ChangeNotifier {
   DateTime? get lastSyncTime => _lastSyncTime;
 
   Future<void> init() async {
-    _googleSignIn.onCurrentUserChanged.listen((GoogleSignInAccount? account) async {
+    await _authSubscription?.cancel();
+    _authSubscription = _googleSignIn.onCurrentUserChanged.listen((GoogleSignInAccount? account) async {
       _currentUser = account;
       if (account != null) {
         final authClient = await _googleSignIn.authenticatedClient();
@@ -95,47 +98,66 @@ class GoogleDriveService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Synchronize all local notebooks with Google Drive
-  Future<void> syncAll(List<NotebookModel> localNotebooks) async {
+  /// Synchronize local and remote notebooks on Google Drive (two-way pull & push).
+  /// Returns any notebooks that were downloaded or updated from Google Drive.
+  Future<List<NotebookModel>> syncAll(List<NotebookModel> localNotebooks) async {
     if (_driveApi == null || !isSignedIn) {
       _lastError = 'Не выполнен вход в Google Drive';
       notifyListeners();
-      return;
+      return const [];
     }
 
     _status = SyncStatus.syncing;
     notifyListeners();
 
+    final downloadedNotebooks = <NotebookModel>[];
+
     try {
-      // Find or create 'KitNote_Backups' folder on Google Drive
       final folderId = await _getOrCreateAppFolder();
 
+      // List all existing notebook JSON files in the app folder on Drive
+      final remoteList = await _driveApi!.files.list(
+        q: "'$folderId' in parents and trashed = false",
+        spaces: 'drive',
+        $fields: 'files(id, name, modifiedTime)',
+      );
+
+      final remoteFilesByName = <String, drive.File>{};
+      for (final f in remoteList.files ?? const <drive.File>[]) {
+        if (f.name != null && f.id != null) {
+          remoteFilesByName[f.name!] = f;
+        }
+      }
+
+      final localById = <String, NotebookModel>{
+        for (final nb in localNotebooks) nb.id: nb,
+      };
+
+      // 1. Upload or merge local notebooks
       for (final notebook in localNotebooks) {
         final filename = 'kitnote_${notebook.id}.json';
-        final jsonContent = jsonEncode(notebook.toJson());
+        final existingRemote = remoteFilesByName.remove(filename);
 
-        // Check if file already exists in Drive folder
-        final list = await _driveApi!.files.list(
-          q: "name = '$filename' and '$folderId' in parents and trashed = false",
-          spaces: 'drive',
-          $fields: 'files(id, name, modifiedTime)',
-        );
+        if (existingRemote != null && existingRemote.id != null) {
+          final remoteModified = existingRemote.modifiedTime;
+          if (remoteModified != null && remoteModified.isAfter(notebook.updatedAt.toUtc())) {
+            final remoteNb = await _downloadNotebookFile(existingRemote.id!);
+            if (remoteNb != null && remoteNb.updatedAt.isAfter(notebook.updatedAt)) {
+              downloadedNotebooks.add(remoteNb);
+              continue;
+            }
+          }
 
-        final media = drive.Media(
-          Stream.value(utf8.encode(jsonContent)),
-          utf8.encode(jsonContent).length,
-        );
-
-        if (list.files != null && list.files!.isNotEmpty) {
-          // Update existing file
-          final existingFileId = list.files!.first.id!;
+          final jsonBytes = utf8.encode(jsonEncode(notebook.toJson()));
+          final media = drive.Media(Stream.value(jsonBytes), jsonBytes.length);
           await _driveApi!.files.update(
             drive.File(),
-            existingFileId,
+            existingRemote.id!,
             uploadMedia: media,
           );
         } else {
-          // Create new file
+          final jsonBytes = utf8.encode(jsonEncode(notebook.toJson()));
+          final media = drive.Media(Stream.value(jsonBytes), jsonBytes.length);
           final fileMetadata = drive.File()
             ..name = filename
             ..parents = [folderId]
@@ -145,6 +167,19 @@ class GoogleDriveService extends ChangeNotifier {
             fileMetadata,
             uploadMedia: media,
           );
+        }
+      }
+
+      // 2. Pull any remote notebooks that do not exist locally
+      for (final entry in remoteFilesByName.entries) {
+        final name = entry.key;
+        final file = entry.value;
+        if (!name.startsWith('kitnote_') || !name.endsWith('.json') || file.id == null) {
+          continue;
+        }
+        final remoteNb = await _downloadNotebookFile(file.id!);
+        if (remoteNb != null && !localById.containsKey(remoteNb.id)) {
+          downloadedNotebooks.add(remoteNb);
         }
       }
 
@@ -158,6 +193,27 @@ class GoogleDriveService extends ChangeNotifier {
     }
 
     notifyListeners();
+    return downloadedNotebooks;
+  }
+
+  Future<NotebookModel?> _downloadNotebookFile(String fileId) async {
+    try {
+      final response = await _driveApi!.files.get(
+        fileId,
+        downloadOptions: drive.DownloadOptions.fullMedia,
+      );
+      if (response is drive.Media) {
+        final bytes = <int>[];
+        await for (final chunk in response.stream) {
+          bytes.addAll(chunk);
+        }
+        final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+        return NotebookModel.fromJson(decoded);
+      }
+    } catch (e) {
+      debugPrint('[GoogleDriveService] Failed to download remote notebook $fileId: $e');
+    }
+    return null;
   }
 
   Future<String> _getOrCreateAppFolder() async {

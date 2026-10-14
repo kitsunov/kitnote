@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,17 @@ import 'ui/library/library_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[KitNote ErrorBoundary] Flutter error: ${details.exceptionAsString()}');
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('[KitNote ErrorBoundary] Unhandled async error: $error\n$stack');
+    return true;
+  };
+
   runApp(const KitNoteApp());
 }
 
@@ -51,26 +63,35 @@ class KitNoteApp extends StatelessWidget {
 class AppRootNavigator extends StatelessWidget {
   const AppRootNavigator({super.key});
 
+  void _openLibraryOverlay(BuildContext context, WorkspaceState workspace) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => LibraryScreen(
+          onOpenNotebook: (id) {
+            workspace.openNotebook(id);
+            Navigator.of(ctx).pop();
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final workspace = Provider.of<WorkspaceState>(context);
 
     // If there are active open notebook tabs, show editor; else library
     if (workspace.openNotebookIds.isNotEmpty) {
-      return NotebookEditorView(
-        onBackToLibrary: () {
-          // Keep tabs open in background, but show library view
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (ctx) => LibraryScreen(
-                onOpenNotebook: (id) {
-                  workspace.openNotebook(id);
-                  Navigator.of(ctx).pop();
-                },
-              ),
-            ),
-          );
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) {
+            _openLibraryOverlay(context, workspace);
+          }
         },
+        child: NotebookEditorView(
+          onBackToLibrary: () => _openLibraryOverlay(context, workspace),
+        ),
       );
     }
 

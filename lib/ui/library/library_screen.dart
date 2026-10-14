@@ -20,12 +20,20 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  final TextEditingController _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForAppUpdates(silent: true);
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkForAppUpdates({bool silent = false}) async {
@@ -84,6 +92,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final strings = AppLocalizations.of(context).strings;
     final isTablet = MediaQuery.of(context).size.width >= 700;
 
+    if (_searchController.text != library.searchQuery) {
+      _searchController.value = TextEditingValue(
+        text: library.searchQuery,
+        selection: TextSelection.collapsed(offset: library.searchQuery.length),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -107,15 +122,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
         actions: [
           // Search Field
           Container(
-            width: 200,
+            width: 210,
             height: 38,
             margin: const EdgeInsets.only(right: 8),
             child: TextField(
+              controller: _searchController,
               onChanged: (val) => library.setSearchQuery(val),
               decoration: InputDecoration(
                 hintText: strings.searchHint,
                 hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: library.searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 16),
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          _searchController.clear();
+                          library.setSearchQuery('');
+                        },
+                      )
+                    : null,
                 contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
                 filled: true,
                 fillColor: Colors.grey.shade100,
@@ -142,7 +168,75 @@ class _LibraryScreenState extends State<LibraryScreen> {
               }
             },
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
+
+          // Sort Notebooks Button
+          PopupMenuButton<LibrarySortOrder>(
+            icon: const Icon(Icons.sort, color: Colors.blueGrey, size: 22),
+            onSelected: (order) => library.setSortOrder(order),
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: LibrarySortOrder.updatedDesc,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      size: 18,
+                      color: library.sortOrder == LibrarySortOrder.updatedDesc ? Colors.blue : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      strings.saved,
+                      style: TextStyle(
+                        fontWeight:
+                            library.sortOrder == LibrarySortOrder.updatedDesc ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: LibrarySortOrder.titleAsc,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.sort_by_alpha,
+                      size: 18,
+                      color: library.sortOrder == LibrarySortOrder.titleAsc ? Colors.blue : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      strings.notebookTitleLabel,
+                      style: TextStyle(
+                        fontWeight:
+                            library.sortOrder == LibrarySortOrder.titleAsc ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: LibrarySortOrder.pageCountDesc,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.auto_stories_outlined,
+                      size: 18,
+                      color: library.sortOrder == LibrarySortOrder.pageCountDesc ? Colors.blue : Colors.grey,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      strings.page,
+                      style: TextStyle(
+                        fontWeight:
+                            library.sortOrder == LibrarySortOrder.pageCountDesc ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
 
           // Language Switcher Button
           IconButton(
@@ -212,9 +306,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildNotebooksGrid(BuildContext context, LibraryState library, AppStrings strings) {
     final notebooks = library.filteredNotebooks;
+    final availableTags = library.allAvailableTags;
 
     return Column(
       children: [
+        if (!library.isViewingTrash && availableTags.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const Icon(Icons.sell_outlined, size: 15, color: Colors.blueGrey),
+                  const SizedBox(width: 8),
+                  ...availableTags.map((tag) {
+                    final isSelected = library.searchQuery.trim().toLowerCase() == tag.toLowerCase();
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: FilterChip(
+                        label: Text('#$tag', style: const TextStyle(fontSize: 12)),
+                        selected: isSelected,
+                        visualDensity: VisualDensity.compact,
+                        selectedColor: Colors.blue.shade100,
+                        checkmarkColor: Colors.blue.shade800,
+                        onSelected: (selected) {
+                          if (selected) {
+                            library.setSearchQuery(tag);
+                          } else {
+                            library.setSearchQuery('');
+                          }
+                        },
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
         if (library.isViewingTrash)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -265,41 +394,56 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ],
                   ),
                 )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(24),
-                  itemCount: notebooks.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 20,
-                    mainAxisSpacing: 20,
-                    childAspectRatio: 0.72,
-                  ),
-                  itemBuilder: (context, index) {
-                    final notebook = notebooks[index];
-                    final folder = notebook.folderId != null
-                        ? library.folders.where((f) => f.id == notebook.folderId).firstOrNull
-                        : null;
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final crossAxisCount = constraints.maxWidth >= 960
+                        ? 4
+                        : (constraints.maxWidth >= 600 ? 3 : 2);
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(24),
+                      itemCount: notebooks.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                        childAspectRatio: 0.72,
+                      ),
+                      itemBuilder: (context, index) {
+                        final notebook = notebooks[index];
+                        final folder = notebook.folderId != null
+                            ? library.folders.where((f) => f.id == notebook.folderId).firstOrNull
+                            : null;
 
-                    return NotebookCard(
-                      notebook: notebook,
-                      folderName: folder?.name,
-                      onTap: () => widget.onOpenNotebook(notebook.id),
-                      onRestore: () {
-                        library.restoreFromTrash(notebook.id);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(strings.restoredFromTrash)),
+                        return NotebookCard(
+                          notebook: notebook,
+                          folderName: folder?.name,
+                          onTap: () {
+                            if (library.searchQuery.isNotEmpty) {
+                              final matchedPage = library.findFirstMatchingPageIndex(notebook);
+                              if (matchedPage != null) {
+                                library.getOrCreateEditor(notebook.id).goToPage(matchedPage);
+                              }
+                            }
+                            widget.onOpenNotebook(notebook.id);
+                          },
+                          onRestore: () {
+                            library.restoreFromTrash(notebook.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(strings.restoredFromTrash)),
+                            );
+                          },
+                          onDelete: () {
+                            if (library.isViewingTrash) {
+                              _confirmDeletePermanently(context, library, notebook.id, strings);
+                            } else {
+                              context.read<WorkspaceState>().closeNotebook(notebook.id);
+                              library.moveToTrash(notebook.id);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(strings.movedToTrash)),
+                              );
+                            }
+                          },
                         );
-                      },
-                      onDelete: () {
-                        if (library.isViewingTrash) {
-                          _confirmDeletePermanently(context, library, notebook.id, strings);
-                        } else {
-                          context.read<WorkspaceState>().closeNotebook(notebook.id);
-                          library.moveToTrash(notebook.id);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(strings.movedToTrash)),
-                          );
-                        }
                       },
                     );
                   },

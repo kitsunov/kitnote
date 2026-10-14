@@ -1,11 +1,14 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../engine/palm_rejection_manager.dart';
 import '../../../models/page_template_model.dart';
 import '../../../models/tool_type.dart';
+import '../../../services/export_service.dart';
+import '../../../services/storage_service.dart';
 import '../../../state/notebook_editor_state.dart';
 import '../../widgets/color_circle.dart';
 import '../../widgets/custom_icon_button.dart';
@@ -105,6 +108,13 @@ class EditorToolbar extends StatelessWidget {
               onPressed: () => state.setTool(ToolType.lasso),
             ),
             CustomIconButton(
+              icon: Icons.flare_outlined,
+              tooltip: ToolType.laserPointer.localizedName(strings),
+              isSelected: activeTool == ToolType.laserPointer,
+              selectedColor: Colors.redAccent,
+              onPressed: () => state.setTool(ToolType.laserPointer),
+            ),
+            CustomIconButton(
               icon: Icons.straighten,
               tooltip: strings.ruler,
               isSelected: state.isRulerEnabled,
@@ -124,7 +134,13 @@ class EditorToolbar extends StatelessWidget {
               onPressed: () async {
                 final result = await FilePicker.platform.pickFiles(type: FileType.image);
                 if (result != null && result.files.isNotEmpty && result.files.first.path != null) {
-                  state.addImageElement(result.files.first.path!, const Offset(100, 150), 300, 220);
+                  final imgId = const Uuid().v4();
+                  final permanentPath = await StorageService().copyImageToPermanentStorage(
+                    result.files.first.path!,
+                    state.notebook.id,
+                    imgId,
+                  );
+                  state.addImageElement(permanentPath, const Offset(100, 150), 300, 220, id: imgId);
                 }
               },
             ),
@@ -326,13 +342,31 @@ class EditorToolbar extends StatelessWidget {
 
             const SizedBox(width: 12),
 
-            // 6. Split Screen Toggle Button
+            // 6. In-Notebook Search, Split Screen Toggle Button & Quick Export PDF
+            CustomIconButton(
+              icon: Icons.search,
+              tooltip: strings.searchHint,
+              onPressed: () => _showInNotebookSearchDialog(context, state, strings),
+            ),
             CustomIconButton(
               icon: Icons.vertical_split_outlined,
               tooltip: strings.splitScreen,
               isSelected: isSplitActive,
               selectedColor: Colors.purple,
               onPressed: onToggleSplitScreen,
+            ),
+            CustomIconButton(
+              icon: Icons.ios_share,
+              tooltip: strings.exportPdf,
+              onPressed: () async {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('${strings.exportPdf}: "${state.notebook.title}"...'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+                await ExportService.exportNotebookToPdf(state.notebook, share: true);
+              },
             ),
           ],
         ),
@@ -394,6 +428,112 @@ class EditorToolbar extends StatelessWidget {
     );
   }
 
+  void _showInNotebookSearchDialog(
+    BuildContext context,
+    NotebookEditorState state,
+    AppStrings strings,
+  ) {
+    final controller = TextEditingController();
+    List<NotebookSearchMatch> results = const [];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Text(strings.searchHint),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: strings.searchHint,
+                    border: const OutlineInputBorder(),
+                    suffixIcon: controller.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              controller.clear();
+                              setDlgState(() {
+                                results = const [];
+                              });
+                            },
+                          )
+                        : null,
+                  ),
+                  onChanged: (val) {
+                    setDlgState(() {
+                      results = state.searchInNotebook(val);
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (controller.text.trim().isNotEmpty && results.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Text(
+                      strings.noNotebooks,
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    ),
+                  )
+                else if (results.isNotEmpty)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 260),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: results.length,
+                      separatorBuilder: (context, index) => const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final match = results[i];
+                        return ListTile(
+                          dense: true,
+                          leading: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${strings.page} ${match.pageNumber}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            match.previewText,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          onTap: () {
+                            state.goToPage(match.pageIndex);
+                            Navigator.pop(ctx);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(strings.done),
+            ),
+          ],
+        ),
+      ),
+    ).then((_) => controller.dispose());
+  }
+
   void _showJumpToPageDialog(
     BuildContext context,
     NotebookEditorState state,
@@ -423,7 +563,7 @@ class EditorToolbar extends StatelessWidget {
               onSubmitted: (val) {
                 final p = int.tryParse(val.trim());
                 if (p != null && p >= 1 && p <= totalPages) {
-                  state.setActivePageIndex(p - 1);
+                  state.goToPage(p - 1);
                   Navigator.pop(ctx);
                 }
               },
@@ -439,7 +579,7 @@ class EditorToolbar extends StatelessWidget {
             onPressed: () {
               final p = int.tryParse(controller.text.trim());
               if (p != null && p >= 1 && p <= totalPages) {
-                state.setActivePageIndex(p - 1);
+                state.goToPage(p - 1);
                 Navigator.pop(ctx);
               }
             },

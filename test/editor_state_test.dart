@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kitnote/engine/shape_recognizer.dart';
 import 'package:kitnote/models/notebook_model.dart';
@@ -9,6 +10,8 @@ import 'package:kitnote/models/stroke_model.dart';
 import 'package:kitnote/models/tool_type.dart';
 import 'package:kitnote/services/storage_service.dart';
 import 'package:kitnote/state/notebook_editor_state.dart';
+import 'package:kitnote/state/workspace_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +22,7 @@ void main() {
     late NotebookEditorState state;
 
     setUp(() async {
+      SharedPreferences.setMockInitialValues({});
       tempDir = await Directory.systemTemp.createTemp('editor_state_test_');
       StorageService.overrideBaseDir = tempDir;
       testNotebook = NotebookModel(
@@ -37,11 +41,14 @@ void main() {
     });
 
     tearDown(() async {
-      await Future.delayed(const Duration(milliseconds: 10));
+      state.dispose();
+      await Future.delayed(const Duration(milliseconds: 25));
       StorageService.overrideBaseDir = null;
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
+      try {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      } catch (_) {}
     });
 
     test('addTextElement and updateTextElement correctly modify page text', () {
@@ -485,6 +492,302 @@ void main() {
       state.deletePageAt(0);
       expect(state.notebook.pages.length, equals(2));
       expect(state.currentPageIndex, equals(1));
+    });
+
+    test('undo stack is capped at maxUndoHistory to prevent OOM', () {
+      for (int i = 0; i < 55; i++) {
+        state.addTextElement('Item $i', Offset(10.0, i * 10.0));
+      }
+      expect(state.currentPage.textElements.length, equals(55));
+
+      int undoCount = 0;
+      while (state.canUndo) {
+        state.undo();
+        undoCount++;
+      }
+      expect(undoCount, equals(NotebookEditorState.maxUndoHistory));
+      expect(state.currentPage.textElements.length, equals(55 - NotebookEditorState.maxUndoHistory));
+    });
+
+    test('live drag updates with recordUndo: false allow single-step undo of entire drag', () {
+      state.addTextElement('Draggable', const Offset(100, 100));
+      final id = state.currentPage.textElements.first.id;
+
+      // Simulate gesture: panStart -> 10 panUpdates -> panEnd
+      state.recordUndoSnapshot();
+      for (int step = 1; step <= 10; step++) {
+        state.moveTextElementWithCrossPage(
+          id,
+          Offset(100.0 + step * 10, 100.0 + step * 5),
+          recordUndo: false,
+          save: false,
+        );
+      }
+      state.commitToStorage();
+
+      expect(state.currentPage.textElements.first.x, equals(200.0));
+      expect(state.currentPage.textElements.first.y, equals(150.0));
+
+      // Single undo restores initial position (100, 100)
+      state.undo();
+      expect(state.currentPage.textElements.first.x, equals(100.0));
+      expect(state.currentPage.textElements.first.y, equals(100.0));
+    });
+
+    test('calling notifyListeners after dispose does not throw', () {
+      final tempState = NotebookEditorState(
+        notebook: NotebookModel.createNew(id: 'nb_disp', title: 'Disp'),
+      );
+      tempState.dispose();
+      expect(() => tempState.notifyListeners(), returnsNormally);
+    });
+
+    test('copyLassoSelection, cutLassoSelection, and pasteClipboard work across pages', () {
+      state.addTextElement('Clipboard Text', const Offset(50, 50));
+      expect(state.currentPage.textElements.length, equals(1));
+
+      // Select with lasso
+      state.setTool(ToolType.lasso);
+      state.startStroke(const Point2D(x: 10, y: 10, timestamp: 1));
+      state.appendStrokePoint(const Point2D(x: 350, y: 10, timestamp: 2));
+      state.appendStrokePoint(const Point2D(x: 350, y: 200, timestamp: 3));
+      state.appendStrokePoint(const Point2D(x: 10, y: 200, timestamp: 4));
+      state.finishStroke(5);
+      expect(state.selectedTextIds.length, equals(1));
+
+      // Cut from page 0
+      state.cutLassoSelection();
+      expect(state.currentPage.textElements, isEmpty);
+      expect(state.hasClipboardContent, isTrue);
+
+      // Add page 1 and paste onto page 1
+      state.addNewPage();
+      expect(state.currentPageIndex, equals(1));
+      state.pasteClipboard(dx: 30, dy: 40);
+
+      expect(state.currentPage.textElements.length, equals(1));
+      expect(state.currentPage.textElements.first.text, equals('Clipboard Text'));
+      expect(state.currentPage.textElements.first.x, equals(80.0));
+      expect(state.currentPage.textElements.first.y, equals(90.0));
+    });
+
+    test('laserPointer creates ephemeral laserStrokes without persisting or recording Undo', () {
+      state.setTool(ToolType.laserPointer);
+      expect(state.activeTool, equals(ToolType.laserPointer));
+
+      state.startStroke(const Point2D(x: 20, y: 20, timestamp: 1));
+      state.appendStrokePoint(const Point2D(x: 80, y: 80, timestamp: 2));
+      state.finishStroke(3);
+
+      expect(state.currentPage.strokes, isEmpty);
+      expect(state.canUndo, isFalse);
+      expect(state.laserStrokes.length, equals(1));
+      expect(state.laserStrokes.first.toolType, equals(ToolType.laserPointer));
+
+      state.clearLaserStrokes();
+      expect(state.laserStrokes, isEmpty);
+    });
+
+    test('clearPageAt and clearCurrentPage wipe strokes and elements on page and support Undo', () {
+      state.addTextElement('Note 1', const Offset(30, 30));
+      state.addImageElement('/test.png', const Offset(50, 50), 100, 100);
+      expect(state.currentPage.textElements.length, equals(1));
+      expect(state.currentPage.imageElements.length, equals(1));
+
+      state.clearCurrentPage();
+      expect(state.currentPage.textElements, isEmpty);
+      expect(state.currentPage.imageElements, isEmpty);
+      expect(state.currentPage.strokes, isEmpty);
+
+      // Undo restores cleared page content
+      state.undo();
+      expect(state.currentPage.textElements.length, equals(1));
+      expect(state.currentPage.imageElements.length, equals(1));
+    });
+
+    test('scaleLassoSelection scales strokes, text elements, and images and supports Undo', () {
+      state.setTool(ToolType.ballpointPen);
+      state.startStroke(const Point2D(x: 20, y: 20, timestamp: 1));
+      state.appendStrokePoint(const Point2D(x: 40, y: 40, timestamp: 2));
+      state.finishStroke(3);
+
+      state.addTextElement('Scale Me', const Offset(30, 30));
+      state.addImageElement('/img.png', const Offset(25, 25), 50, 50);
+
+      // Select all with lasso
+      state.setTool(ToolType.lasso);
+      state.startStroke(const Point2D(x: 0, y: 0, timestamp: 10));
+      state.appendStrokePoint(const Point2D(x: 400, y: 0, timestamp: 11));
+      state.appendStrokePoint(const Point2D(x: 400, y: 300, timestamp: 12));
+      state.appendStrokePoint(const Point2D(x: 0, y: 300, timestamp: 13));
+      state.finishStroke(14);
+
+      expect(state.selectedStrokeIds.length, equals(1));
+      expect(state.selectedTextIds.length, equals(1));
+      expect(state.selectedImageIds.length, equals(1));
+
+      final origImgW = state.currentPage.imageElements.first.width;
+      final origFontSize = state.currentPage.textElements.first.fontSize;
+
+      state.scaleLassoSelection(1.2, anchor: const Offset(20, 20));
+      expect(state.currentPage.imageElements.first.width, closeTo(origImgW * 1.2, 0.01));
+      expect(state.currentPage.textElements.first.fontSize, closeTo(origFontSize * 1.2, 0.01));
+
+      state.undo();
+      expect(state.currentPage.imageElements.first.width, closeTo(origImgW, 0.01));
+      expect(state.currentPage.textElements.first.fontSize, closeTo(origFontSize, 0.01));
+    });
+
+    test('rotateImageElement rotates image by 90 degrees and supports Undo', () {
+      state.addImageElement('/img.png', const Offset(50, 50), 100, 100);
+      final imgId = state.currentPage.imageElements.first.id;
+      expect(state.currentPage.imageElements.first.rotation, equals(0.0));
+
+      state.rotateImageElement(imgId, math.pi / 2);
+      expect(state.currentPage.imageElements.first.rotation, closeTo(math.pi / 2, 0.001));
+
+      state.undo();
+      expect(state.currentPage.imageElements.first.rotation, equals(0.0));
+    });
+
+    test('last opened page index and WorkspaceState open tabs persist via SharedPreferences', () async {
+      state.addNewPage();
+      state.addNewPage();
+      state.goToPage(2);
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      final reopenedState = NotebookEditorState(notebook: state.notebook);
+      await reopenedState.loadLastOpenedPage();
+      expect(reopenedState.currentPageIndex, equals(2));
+
+      final ws1 = WorkspaceState();
+      ws1.openNotebook('nb_1');
+      ws1.openNotebook('nb_2');
+      ws1.switchTab(0);
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      final ws2 = WorkspaceState();
+      await ws2.restoreSession();
+      expect(ws2.openNotebookIds, equals(['nb_1', 'nb_2']));
+      expect(ws2.activeTabIndex, equals(0));
+    });
+
+    test('ShapeRecognizer distinguishes circle vs rectangle, recognizes triangles, and snaps axis lines', () {
+      // 1. Nearly horizontal line (2 degrees off) snaps to exact y
+      final slightTiltLine = StrokeModel(
+        id: 'tilt_line',
+        points: List.generate(
+          10,
+          (i) => Point2D(x: i * 20.0, y: 100.0 + i * 0.4, timestamp: i * 10),
+        ),
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+      final snappedLine = ShapeRecognizer.tryRecognizeShape(slightTiltLine, endDwellMs: 400);
+      expect(snappedLine, isNotNull);
+      expect(snappedLine!.points.length, equals(2));
+      expect(snappedLine.points.first.y, closeTo(snappedLine.points.last.y, 0.001));
+
+      // 2. Circle (radial error near 0) is recognized as 49-point smooth circle/ellipse
+      final circlePts = <Point2D>[];
+      for (int i = 0; i <= 32; i++) {
+        final angle = (i / 32) * 2 * math.pi;
+        circlePts.add(Point2D(
+          x: 200.0 + 60.0 * math.cos(angle),
+          y: 200.0 + 60.0 * math.sin(angle),
+          timestamp: i * 10,
+        ));
+      }
+      final circleStroke = StrokeModel(
+        id: 'circle_1',
+        points: circlePts,
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+      final recognizedCircle = ShapeRecognizer.tryRecognizeShape(circleStroke, endDwellMs: 400);
+      expect(recognizedCircle, isNotNull);
+      expect(recognizedCircle!.points.length, equals(29)); // 28 segments + 1 closing point
+
+      // 3. Square (4 corners) is recognized as 5-point closed rectangle, NOT a circle
+      final squarePts = <Point2D>[
+        for (int i = 0; i <= 8; i++) Point2D(x: 100.0 + i * 15.0, y: 100.0, timestamp: i * 10),
+        for (int i = 1; i <= 8; i++) Point2D(x: 220.0, y: 100.0 + i * 15.0, timestamp: 90 + i * 10),
+        for (int i = 1; i <= 8; i++) Point2D(x: 220.0 - i * 15.0, y: 220.0, timestamp: 180 + i * 10),
+        for (int i = 1; i <= 8; i++) Point2D(x: 100.0, y: 220.0 - i * 15.0, timestamp: 270 + i * 10),
+      ];
+      final squareStroke = StrokeModel(
+        id: 'square_1',
+        points: squarePts,
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+      final recognizedSquare = ShapeRecognizer.tryRecognizeShape(squareStroke, endDwellMs: 400);
+      expect(recognizedSquare, isNotNull);
+      expect(recognizedSquare!.points.length, equals(5)); // 4 corners + closing point
+
+      // 4. Triangle (3 sharp vertices) is recognized as 4-point closed triangle
+      final triPts = <Point2D>[
+        for (int i = 0; i <= 8; i++)
+          Point2D(x: 100.0 + i * 10.0, y: 200.0 - i * 15.0, timestamp: i * 10),
+        for (int i = 1; i <= 8; i++)
+          Point2D(x: 180.0 + i * 10.0, y: 80.0 + i * 15.0, timestamp: 90 + i * 10),
+        for (int i = 1; i <= 8; i++)
+          Point2D(x: 260.0 - i * 20.0, y: 200.0, timestamp: 180 + i * 10),
+      ];
+      final triStroke = StrokeModel(
+        id: 'tri_1',
+        points: triPts,
+        colorValue: 0xFF000000,
+        strokeWidth: 2.0,
+        toolType: ToolType.ballpointPen,
+      );
+      final recognizedTri = ShapeRecognizer.tryRecognizeShape(triStroke, endDwellMs: 400);
+      expect(recognizedTri, isNotNull);
+      expect(recognizedTri!.points.length, equals(4)); // 3 vertices + closing point
+    });
+
+    test('live hold-to-snap snaps active stroke while stylus is held still', () async {
+      state.setTool(ToolType.fountainPen);
+      state.startStroke(const Point2D(x: 10, y: 50, timestamp: 0));
+      for (int i = 1; i <= 8; i++) {
+        state.appendStrokePoint(Point2D(x: 10.0 + i * 20.0, y: 50.0, timestamp: i * 15));
+      }
+      expect(state.activeStrokePoints.length, equals(9));
+
+      // Hold stylus still for > 380ms
+      await Future.delayed(const Duration(milliseconds: 430));
+      // Active stroke points should now be snapped live to a 2-point straight line!
+      expect(state.activeStrokePoints.length, equals(2));
+
+      state.finishStroke();
+      expect(state.currentPage.strokes.length, equals(1));
+      expect(state.currentPage.strokes.first.points.length, equals(2));
+    });
+
+    test('snapRulerToNextPresetAngle cycles through 0, 45, 90, 135 degrees and searchInNotebook finds text', () {
+      expect(state.rulerAngle, closeTo(0.0, 0.001));
+      state.snapRulerToNextPresetAngle();
+      expect(state.rulerAngle, closeTo(math.pi / 4, 0.001));
+      state.snapRulerToNextPresetAngle();
+      expect(state.rulerAngle, closeTo(math.pi / 2, 0.001));
+      state.snapRulerToNextPresetAngle();
+      expect(state.rulerAngle, closeTo(3 * math.pi / 4, 0.001));
+      state.snapRulerToNextPresetAngle();
+      expect(state.rulerAngle, closeTo(0.0, 0.001));
+
+      // Search across pages
+      state.addTextElement('Calculus lecture derivatives', const Offset(20, 20));
+      state.addNewPage();
+      state.addTextElement('Linear Algebra eigenvalues', const Offset(40, 40));
+
+      final matches = state.searchInNotebook('eigen');
+      expect(matches.length, equals(1));
+      expect(matches.first.pageIndex, equals(1));
+      expect(matches.first.pageNumber, equals(2));
+      expect(matches.first.previewText, contains('eigenvalues'));
     });
   });
 }

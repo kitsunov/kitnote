@@ -63,6 +63,23 @@ class StrokeModel {
     );
   }
 
+  StrokeModel scaleAround(Offset origin, double factor) {
+    final clamped = factor.clamp(0.2, 5.0);
+    return copyWith(
+      strokeWidth: (strokeWidth * clamped).clamp(0.5, 48.0),
+      points: points
+          .map(
+            (p) => Point2D(
+              x: origin.dx + (p.x - origin.dx) * clamped,
+              y: origin.dy + (p.y - origin.dy) * clamped,
+              pressure: p.pressure,
+              timestamp: p.timestamp,
+            ),
+          )
+          .toList(),
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'pts': points.map((p) => p.toJson()).toList(),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
@@ -14,9 +15,24 @@ import '../models/point_model.dart';
 import '../models/stroke_model.dart';
 import '../models/text_element_model.dart';
 import '../models/tool_type.dart';
+import '../services/clipboard_service.dart';
 import '../services/storage_service.dart';
 
 enum SaveStatus { saved, saving, error }
+
+class NotebookSearchMatch {
+  final int pageIndex;
+  final int pageNumber;
+  final String textElementId;
+  final String previewText;
+
+  const NotebookSearchMatch({
+    required this.pageIndex,
+    required this.pageNumber,
+    required this.textElementId,
+    required this.previewText,
+  });
+}
 
 class NotebookUndoState {
   final List<PageModel> pages;
@@ -58,11 +74,17 @@ class NotebookEditorState extends ChangeNotifier {
 
   // Ruler state
   bool _isRulerEnabled = false;
-  Offset _rulerPosition = const Offset(200, 300);
+  Offset _rulerPosition = const Offset(400, 320);
   double _rulerAngle = 0.0; // In radians
 
   // Active inking stroke
   final List<Point2D> _activeStrokePoints = [];
+  Timer? _holdShapeSnapTimer;
+  bool _activeStrokeSnappedToShape = false;
+
+  // Ephemeral laser pointer strokes (not persisted, auto-fade after a short delay)
+  final List<StrokeModel> _laserStrokes = [];
+  Timer? _laserFadeTimer;
 
   // Lasso selection
   final List<Offset> _lassoPoints = [];
@@ -72,14 +94,54 @@ class NotebookEditorState extends ChangeNotifier {
   final Set<String> _selectedImageIds = {};
 
   // Undo / Redo stacks
+  static const int maxUndoHistory = 40;
   final List<NotebookUndoState> _undoStack = [];
   final List<NotebookUndoState> _redoStack = [];
+  bool _isDisposed = false;
 
   NotebookEditorState({
     required this.notebook,
     this.onNotebookChanged,
   }) {
     loadCustomPaletteColors();
+    loadLastOpenedPage();
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _holdShapeSnapTimer?.cancel();
+    _laserFadeTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
+  Future<void> loadLastOpenedPage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIdx = prefs.getInt('last_page_${notebook.id}');
+      if (savedIdx != null &&
+          _currentPageIndex == 0 &&
+          savedIdx > 0 &&
+          savedIdx < notebook.pages.length) {
+        _currentPageIndex = savedIdx;
+        _scrollTargetPageIndex = savedIdx;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveLastOpenedPage(int index) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('last_page_${notebook.id}', index);
+    } catch (_) {}
   }
 
   // Getters
@@ -97,6 +159,7 @@ class NotebookEditorState extends ChangeNotifier {
   Offset get rulerPosition => _rulerPosition;
   double get rulerAngle => _rulerAngle;
   List<Point2D> get activeStrokePoints => List.unmodifiable(_activeStrokePoints);
+  List<StrokeModel> get laserStrokes => List.unmodifiable(_laserStrokes);
   List<Offset> get lassoPoints => List.unmodifiable(_lassoPoints);
   bool get isLassoActive => _isLassoActive;
   Set<String> get selectedStrokeIds => Set.unmodifiable(_selectedStrokeIds);
@@ -226,6 +289,53 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cycles the ruler angle through standard presets (0°, 45°, 90°, 135°).
+  void snapRulerToNextPresetAngle() {
+    const presets = <double>[
+      0.0,
+      math.pi / 4,
+      math.pi / 2,
+      3 * math.pi / 4,
+    ];
+    // Normalize current angle to [0, pi)
+    double normalized = _rulerAngle % math.pi;
+    if (normalized < 0) normalized += math.pi;
+
+    double nextPreset = presets.first;
+    for (final preset in presets) {
+      if (preset > normalized + 0.05) {
+        nextPreset = preset;
+        break;
+      }
+    }
+    _rulerAngle = nextPreset;
+    notifyListeners();
+  }
+
+  /// Searches all pages of the current notebook for text elements matching [query].
+  List<NotebookSearchMatch> searchInNotebook(String query) {
+    final trimmed = query.trim().toLowerCase();
+    if (trimmed.isEmpty) return const [];
+
+    final matches = <NotebookSearchMatch>[];
+    for (int i = 0; i < notebook.pages.length; i++) {
+      final page = notebook.pages[i];
+      for (final textEl in page.textElements) {
+        if (textEl.text.toLowerCase().contains(trimmed)) {
+          matches.add(
+            NotebookSearchMatch(
+              pageIndex: i,
+              pageNumber: i + 1,
+              textElementId: textEl.id,
+              previewText: textEl.text.trim(),
+            ),
+          );
+        }
+      }
+    }
+    return matches;
+  }
+
   void togglePalmRejectionMode() {
     if (_palmRejection.mode == PalmRejectionMode.stylusOnly) {
       _palmRejection.mode = PalmRejectionMode.stylusAndTouch;
@@ -241,6 +351,7 @@ class NotebookEditorState extends ChangeNotifier {
       _currentPageIndex = index;
       _scrollTargetPageIndex = index;
       _clearLassoSelection();
+      _saveLastOpenedPage(index);
       notifyListeners();
     }
   }
@@ -367,6 +478,47 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearCurrentPage() {
+    clearPageAt(_currentPageIndex);
+  }
+
+  /// Clears all strokes, text elements, and non-background image elements on page [index] (undoable).
+  void clearPageAt(int index) {
+    if (index < 0 || index >= notebook.pages.length) return;
+    final targetPage = notebook.pages[index];
+    if (targetPage.strokes.isEmpty &&
+        targetPage.textElements.isEmpty &&
+        targetPage.imageElements.isEmpty) {
+      return;
+    }
+
+    _recordUndoState();
+    final updatedPages = List<PageModel>.from(notebook.pages);
+    updatedPages[index] = targetPage.copyWith(
+      strokes: const [],
+      textElements: const [],
+      imageElements: const [],
+    );
+    if (index == _currentPageIndex) {
+      _clearLassoSelection();
+    }
+
+    notebook = notebook.copyWith(
+      pages: updatedPages,
+      updatedAt: DateTime.now(),
+    );
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  void clearLaserStrokes() {
+    _laserFadeTimer?.cancel();
+    if (_laserStrokes.isNotEmpty) {
+      _laserStrokes.clear();
+      notifyListeners();
+    }
+  }
+
   void insertPageAfter(int index) {
     addNewPage(atIndex: index + 1);
   }
@@ -423,12 +575,16 @@ class NotebookEditorState extends ChangeNotifier {
     if (index >= 0 && index < notebook.pages.length && _currentPageIndex != index) {
       _currentPageIndex = index;
       _clearLassoSelection();
+      _saveLastOpenedPage(index);
       notifyListeners();
     }
   }
 
   // Drawing Lifecycle
   void startStroke(Point2D point) {
+    _holdShapeSnapTimer?.cancel();
+    _activeStrokeSnappedToShape = false;
+
     if (_activeTool.isEraser) {
       _recordUndoState();
       _handleEraserPoint(point.toOffset());
@@ -473,11 +629,70 @@ class NotebookEditorState extends ChangeNotifier {
       actualPoint = Point2D(x: projected.dx, y: projected.dy, pressure: point.pressure, timestamp: point.timestamp);
     }
 
+    if (_activeStrokeSnappedToShape) {
+      // Once snapped while holding, ignore tiny stylus micro-jitter so the snapped preview stays crisp.
+      final lastPt = _activeStrokePoints.isNotEmpty ? _activeStrokePoints.last : null;
+      if (lastPt != null && (actualPoint.toOffset() - lastPt.toOffset()).distance < 8.0) {
+        return;
+      }
+      // If user intentionally keeps drawing far away, resume normal stroke
+      _activeStrokeSnappedToShape = false;
+    }
+
+    final prevPt = _activeStrokePoints.isNotEmpty ? _activeStrokePoints.last : null;
     _activeStrokePoints.add(actualPoint);
+
+    // Only reset the hold-to-snap timer if pointer moved more than 3.5px (filters stylus jitter)
+    if (!_isRulerEnabled &&
+        _activeTool != ToolType.highlighter &&
+        _activeTool != ToolType.laserPointer) {
+      if (prevPt == null || (actualPoint.toOffset() - prevPt.toOffset()).distance >= 3.5) {
+        _scheduleHoldShapeSnap();
+      }
+    }
+
     notifyListeners();
   }
 
+  void _scheduleHoldShapeSnap() {
+    _holdShapeSnapTimer?.cancel();
+    _holdShapeSnapTimer = Timer(const Duration(milliseconds: 380), () {
+      if (_isDisposed ||
+          _isRulerEnabled ||
+          _activeStrokeSnappedToShape ||
+          _activeStrokePoints.length < 6 ||
+          _activeTool.isEraser ||
+          _activeTool == ToolType.lasso ||
+          _activeTool == ToolType.highlighter ||
+          _activeTool == ToolType.laserPointer) {
+        return;
+      }
+
+      final previewStroke = StrokeModel(
+        id: 'preview',
+        points: List<Point2D>.from(_activeStrokePoints),
+        colorValue: _activeColor,
+        strokeWidth: _activeStrokeWidth,
+        opacity: 1.0,
+        toolType: _activeTool,
+      );
+      final recognized = ShapeRecognizer.tryRecognizeShape(
+        previewStroke,
+        endDwellMs: 400,
+      );
+      if (recognized != null) {
+        _activeStrokePoints
+          ..clear()
+          ..addAll(recognized.points);
+        _activeStrokeSnappedToShape = true;
+        notifyListeners();
+      }
+    });
+  }
+
   void finishStroke([int? upTimestamp]) {
+    _holdShapeSnapTimer?.cancel();
+
     if (_activeTool.isEraser) {
       _saveToStorage();
       return;
@@ -489,6 +704,29 @@ class NotebookEditorState extends ChangeNotifier {
     }
 
     if (_activeStrokePoints.isEmpty) return;
+
+    if (_activeTool == ToolType.laserPointer) {
+      final laserStroke = StrokeModel(
+        id: const Uuid().v4(),
+        points: List.from(_activeStrokePoints),
+        colorValue: 0xFFEF4444, // Bright laser red
+        strokeWidth: 4.5,
+        opacity: 0.9,
+        toolType: ToolType.laserPointer,
+      );
+      _laserStrokes.add(laserStroke);
+      _activeStrokePoints.clear();
+      _activeStrokeSnappedToShape = false;
+      _laserFadeTimer?.cancel();
+      _laserFadeTimer = Timer(const Duration(milliseconds: 1200), () {
+        if (!_isDisposed) {
+          _laserStrokes.clear();
+          notifyListeners();
+        }
+      });
+      notifyListeners();
+      return;
+    }
 
     final now = upTimestamp ?? DateTime.now().millisecondsSinceEpoch;
     final lastPtTimestamp = _activeStrokePoints.last.timestamp;
@@ -510,8 +748,10 @@ class NotebookEditorState extends ChangeNotifier {
       toolType: _activeTool,
     );
 
-    // Auto-detect shapes if pen was held or line snapped
-    if (!_isRulerEnabled && _activeTool != ToolType.highlighter) {
+    // Auto-detect shapes if pen was held or line snapped (unless already snapped live)
+    if (!_activeStrokeSnappedToShape &&
+        !_isRulerEnabled &&
+        _activeTool != ToolType.highlighter) {
       final recognized = ShapeRecognizer.tryRecognizeShape(newStroke, endDwellMs: dwellMs);
       if (recognized != null) {
         newStroke = recognized;
@@ -522,6 +762,7 @@ class NotebookEditorState extends ChangeNotifier {
     _updateCurrentPageStrokes(updatedStrokes);
 
     _activeStrokePoints.clear();
+    _activeStrokeSnappedToShape = false;
     _saveToStorage();
     notifyListeners();
   }
@@ -597,9 +838,16 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void translateLassoSelection(double dx, double dy) {
+  void translateLassoSelection(
+    double dx,
+    double dy, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     if (_selectedStrokeIds.isEmpty && _selectedTextIds.isEmpty && _selectedImageIds.isEmpty) return;
-    _recordUndoState();
+    if (recordUndo) {
+      _recordUndoState();
+    }
 
     final updatedStrokes = currentPage.strokes.map((s) {
       if (_selectedStrokeIds.contains(s.id)) {
@@ -627,7 +875,72 @@ class NotebookEditorState extends ChangeNotifier {
       textElements: updatedTexts,
       imageElements: updatedImages,
     );
-    _saveToStorage();
+    if (save) {
+      _saveToStorage();
+    }
+    notifyListeners();
+  }
+
+  /// Scales all selected Lasso elements (strokes, texts, images) around [anchor] (or the top-left of [lassoBoundingBox]).
+  void scaleLassoSelection(
+    double scaleFactor, {
+    Offset? anchor,
+    bool recordUndo = true,
+    bool save = true,
+  }) {
+    if (_selectedStrokeIds.isEmpty && _selectedTextIds.isEmpty && _selectedImageIds.isEmpty) return;
+    final bbox = lassoBoundingBox;
+    if (bbox == null) return;
+
+    final clamped = scaleFactor.clamp(0.5, 2.5);
+    if ((clamped - 1.0).abs() < 0.001) return;
+
+    if (recordUndo) {
+      _recordUndoState();
+    }
+
+    final origin = anchor ?? bbox.topLeft;
+
+    final updatedStrokes = currentPage.strokes.map((s) {
+      if (_selectedStrokeIds.contains(s.id)) {
+        return s.scaleAround(origin, clamped);
+      }
+      return s;
+    }).toList();
+
+    final updatedTexts = currentPage.textElements.map((t) {
+      if (_selectedTextIds.contains(t.id)) {
+        return t.copyWith(
+          x: origin.dx + (t.x - origin.dx) * clamped,
+          y: origin.dy + (t.y - origin.dy) * clamped,
+          width: (t.width * clamped).clamp(60.0, 2000.0),
+          height: (t.height * clamped).clamp(30.0, 2000.0),
+          fontSize: (t.fontSize * clamped).clamp(8.0, 96.0),
+        );
+      }
+      return t;
+    }).toList();
+
+    final updatedImages = currentPage.imageElements.map((img) {
+      if (_selectedImageIds.contains(img.id)) {
+        return img.copyWith(
+          x: origin.dx + (img.x - origin.dx) * clamped,
+          y: origin.dy + (img.y - origin.dy) * clamped,
+          width: (img.width * clamped).clamp(50.0, 3000.0),
+          height: (img.height * clamped).clamp(50.0, 3000.0),
+        );
+      }
+      return img;
+    }).toList();
+
+    _updateCurrentPageAll(
+      strokes: updatedStrokes,
+      textElements: updatedTexts,
+      imageElements: updatedImages,
+    );
+    if (save) {
+      _saveToStorage();
+    }
     notifyListeners();
   }
 
@@ -698,6 +1011,96 @@ class NotebookEditorState extends ChangeNotifier {
       textElements: updatedTexts,
       imageElements: updatedImages,
     );
+    _selectedStrokeIds
+      ..clear()
+      ..addAll(newSelectedStrokeIds);
+    _selectedTextIds
+      ..clear()
+      ..addAll(newSelectedTextIds);
+    _selectedImageIds
+      ..clear()
+      ..addAll(newSelectedImageIds);
+
+    _saveToStorage();
+    notifyListeners();
+  }
+
+  bool get hasClipboardContent => ClipboardService().hasContent;
+
+  /// Copies currently selected lasso items (strokes, texts, images) into the global [ClipboardService].
+  void copyLassoSelection() {
+    if (_selectedStrokeIds.isEmpty && _selectedTextIds.isEmpty && _selectedImageIds.isEmpty) return;
+
+    final copiedStrokes = currentPage.strokes
+        .where((s) => _selectedStrokeIds.contains(s.id))
+        .toList();
+    final copiedTexts = currentPage.textElements
+        .where((t) => _selectedTextIds.contains(t.id))
+        .toList();
+    final copiedImages = currentPage.imageElements
+        .where((i) => _selectedImageIds.contains(i.id))
+        .toList();
+
+    ClipboardService().copy(
+      strokes: copiedStrokes,
+      textElements: copiedTexts,
+      imageElements: copiedImages,
+    );
+    notifyListeners();
+  }
+
+  /// Cuts currently selected lasso items into the global [ClipboardService] and removes them from the page.
+  void cutLassoSelection() {
+    if (_selectedStrokeIds.isEmpty && _selectedTextIds.isEmpty && _selectedImageIds.isEmpty) return;
+    copyLassoSelection();
+    deleteLassoSelection();
+  }
+
+  /// Pastes items from [ClipboardService] onto the current page and selects the newly pasted items.
+  void pasteClipboard({double dx = 20.0, double dy = 20.0}) {
+    final payload = ClipboardService().payload;
+    if (payload.isEmpty) return;
+
+    _recordUndoState();
+    const uuid = Uuid();
+
+    final List<StrokeModel> pastedStrokes = [];
+    final Set<String> newSelectedStrokeIds = {};
+    for (final s in payload.strokes) {
+      final newId = uuid.v4();
+      final copy = s.translate(dx, dy).copyWith(id: newId);
+      pastedStrokes.add(copy);
+      newSelectedStrokeIds.add(newId);
+    }
+
+    final List<TextElementModel> pastedTexts = [];
+    final Set<String> newSelectedTextIds = {};
+    for (final t in payload.textElements) {
+      final newId = uuid.v4();
+      final copy = t.translate(dx, dy).copyWith(id: newId);
+      pastedTexts.add(copy);
+      newSelectedTextIds.add(newId);
+    }
+
+    final List<ImageElementModel> pastedImages = [];
+    final Set<String> newSelectedImageIds = {};
+    for (final i in payload.imageElements) {
+      final newId = uuid.v4();
+      final copy = i.translate(dx, dy).copyWith(id: newId);
+      pastedImages.add(copy);
+      newSelectedImageIds.add(newId);
+    }
+
+    final updatedStrokes = List<StrokeModel>.from(currentPage.strokes)..addAll(pastedStrokes);
+    final updatedTexts = List<TextElementModel>.from(currentPage.textElements)..addAll(pastedTexts);
+    final updatedImages = List<ImageElementModel>.from(currentPage.imageElements)..addAll(pastedImages);
+
+    _updateCurrentPageAll(
+      strokes: updatedStrokes,
+      textElements: updatedTexts,
+      imageElements: updatedImages,
+    );
+    _lassoPoints.clear();
     _selectedStrokeIds
       ..clear()
       ..addAll(newSelectedStrokeIds);
@@ -809,19 +1212,36 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void moveTextElement(String id, Offset newPosition) {
+  void moveTextElement(
+    String id,
+    Offset newPosition, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     final idx = currentPage.textElements.indexWhere((t) => t.id == id);
     if (idx == -1) return;
     final elem = currentPage.textElements[idx];
-    updateTextElement(elem.copyWith(x: newPosition.dx, y: newPosition.dy));
+    updateTextElement(
+      elem.copyWith(x: newPosition.dx, y: newPosition.dy),
+      recordUndo: recordUndo,
+      save: save,
+    );
   }
 
-  void moveTextElementWithCrossPage(String id, Offset newPosition) {
+  void moveTextElementWithCrossPage(
+    String id,
+    Offset newPosition, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     if (newPosition.dy < -40 && _currentPageIndex > 0) {
       final prevIndex = _currentPageIndex - 1;
       final prevPage = notebook.pages[prevIndex];
       final txtIdx = currentPage.textElements.indexWhere((t) => t.id == id);
       if (txtIdx != -1) {
+        if (recordUndo) {
+          _recordUndoState();
+        }
         final txt = currentPage.textElements[txtIdx];
         final transferred = txt.copyWith(
           y: prevPage.height + newPosition.dy,
@@ -836,7 +1256,9 @@ class NotebookEditorState extends ChangeNotifier {
 
         notebook = notebook.copyWith(pages: updatedPages, updatedAt: DateTime.now());
         _currentPageIndex = prevIndex;
-        _saveToStorage();
+        if (save) {
+          _saveToStorage();
+        }
         notifyListeners();
         return;
       }
@@ -846,6 +1268,9 @@ class NotebookEditorState extends ChangeNotifier {
       final nextPage = notebook.pages[nextIndex];
       final txtIdx = currentPage.textElements.indexWhere((t) => t.id == id);
       if (txtIdx != -1) {
+        if (recordUndo) {
+          _recordUndoState();
+        }
         final txt = currentPage.textElements[txtIdx];
         final transferred = txt.copyWith(
           y: newPosition.dy - currentPage.height,
@@ -860,19 +1285,29 @@ class NotebookEditorState extends ChangeNotifier {
 
         notebook = notebook.copyWith(pages: updatedPages, updatedAt: DateTime.now());
         _currentPageIndex = nextIndex;
-        _saveToStorage();
+        if (save) {
+          _saveToStorage();
+        }
         notifyListeners();
         return;
       }
     }
-    moveTextElement(id, newPosition);
+    moveTextElement(id, newPosition, recordUndo: recordUndo, save: save);
   }
 
-  void updateTextElement(TextElementModel updated) {
-    _recordUndoState();
+  void updateTextElement(
+    TextElementModel updated, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
+    if (recordUndo) {
+      _recordUndoState();
+    }
     final list = currentPage.textElements.map((t) => t.id == updated.id ? updated : t).toList();
     _updateCurrentPageTextElements(list);
-    _saveToStorage();
+    if (save) {
+      _saveToStorage();
+    }
     notifyListeners();
   }
 
@@ -885,10 +1320,10 @@ class NotebookEditorState extends ChangeNotifier {
   }
 
   // Image Elements
-  void addImageElement(String path, Offset position, double width, double height) {
+  void addImageElement(String path, Offset position, double width, double height, {String? id}) {
     _recordUndoState();
     final newImg = ImageElementModel(
-      id: const Uuid().v4(),
+      id: id ?? const Uuid().v4(),
       localPath: path,
       x: position.dx,
       y: position.dy,
@@ -902,19 +1337,36 @@ class NotebookEditorState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void moveImageElement(String id, Offset newPosition) {
+  void moveImageElement(
+    String id,
+    Offset newPosition, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     final idx = currentPage.imageElements.indexWhere((i) => i.id == id);
     if (idx == -1) return;
     final elem = currentPage.imageElements[idx];
-    updateImageElement(elem.copyWith(x: newPosition.dx, y: newPosition.dy));
+    updateImageElement(
+      elem.copyWith(x: newPosition.dx, y: newPosition.dy),
+      recordUndo: recordUndo,
+      save: save,
+    );
   }
 
-  void moveImageElementWithCrossPage(String id, Offset newPosition) {
+  void moveImageElementWithCrossPage(
+    String id,
+    Offset newPosition, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     if (newPosition.dy < -40 && _currentPageIndex > 0) {
       final prevIndex = _currentPageIndex - 1;
       final prevPage = notebook.pages[prevIndex];
       final imgIdx = currentPage.imageElements.indexWhere((i) => i.id == id);
       if (imgIdx != -1) {
+        if (recordUndo) {
+          _recordUndoState();
+        }
         final img = currentPage.imageElements[imgIdx];
         final transferred = img.copyWith(
           y: prevPage.height + newPosition.dy,
@@ -929,7 +1381,9 @@ class NotebookEditorState extends ChangeNotifier {
 
         notebook = notebook.copyWith(pages: updatedPages, updatedAt: DateTime.now());
         _currentPageIndex = prevIndex;
-        _saveToStorage();
+        if (save) {
+          _saveToStorage();
+        }
         notifyListeners();
         return;
       }
@@ -939,6 +1393,9 @@ class NotebookEditorState extends ChangeNotifier {
       final nextPage = notebook.pages[nextIndex];
       final imgIdx = currentPage.imageElements.indexWhere((i) => i.id == id);
       if (imgIdx != -1) {
+        if (recordUndo) {
+          _recordUndoState();
+        }
         final img = currentPage.imageElements[imgIdx];
         final transferred = img.copyWith(
           y: newPosition.dy - currentPage.height,
@@ -953,12 +1410,14 @@ class NotebookEditorState extends ChangeNotifier {
 
         notebook = notebook.copyWith(pages: updatedPages, updatedAt: DateTime.now());
         _currentPageIndex = nextIndex;
-        _saveToStorage();
+        if (save) {
+          _saveToStorage();
+        }
         notifyListeners();
         return;
       }
     }
-    moveImageElement(id, newPosition);
+    moveImageElement(id, newPosition, recordUndo: recordUndo, save: save);
   }
 
   void bringImageToFront(String id) {
@@ -973,21 +1432,56 @@ class NotebookEditorState extends ChangeNotifier {
     updateImageElement(currentPage.imageElements[idx].copyWith(isBackground: true));
   }
 
-  void resizeImageElement(String id, double newWidth, double newHeight) {
+  void resizeImageElement(
+    String id,
+    double newWidth,
+    double newHeight, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
     final idx = currentPage.imageElements.indexWhere((i) => i.id == id);
     if (idx == -1) return;
     final elem = currentPage.imageElements[idx];
-    updateImageElement(elem.copyWith(
-      width: newWidth.clamp(50.0, 3000.0),
-      height: newHeight.clamp(50.0, 3000.0),
-    ));
+    updateImageElement(
+      elem.copyWith(
+        width: newWidth.clamp(50.0, 3000.0),
+        height: newHeight.clamp(50.0, 3000.0),
+      ),
+      recordUndo: recordUndo,
+      save: save,
+    );
   }
 
-  void updateImageElement(ImageElementModel updated) {
-    _recordUndoState();
+  void rotateImageElement(
+    String id,
+    double angleDeltaRadians, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
+    final idx = currentPage.imageElements.indexWhere((i) => i.id == id);
+    if (idx == -1) return;
+    final elem = currentPage.imageElements[idx];
+    final nextAngle = (elem.rotation + angleDeltaRadians) % (2 * math.pi);
+    updateImageElement(
+      elem.copyWith(rotation: nextAngle),
+      recordUndo: recordUndo,
+      save: save,
+    );
+  }
+
+  void updateImageElement(
+    ImageElementModel updated, {
+    bool recordUndo = true,
+    bool save = true,
+  }) {
+    if (recordUndo) {
+      _recordUndoState();
+    }
     final list = currentPage.imageElements.map((i) => i.id == updated.id ? updated : i).toList();
     _updateCurrentPageImageElements(list);
-    _saveToStorage();
+    if (save) {
+      _saveToStorage();
+    }
     notifyListeners();
   }
 
@@ -1000,7 +1494,14 @@ class NotebookEditorState extends ChangeNotifier {
   }
 
   // Undo / Redo
+  void recordUndoSnapshot() => _recordUndoState();
+
+  void commitToStorage() => _saveToStorage();
+
   void _recordUndoState() {
+    if (_undoStack.length >= maxUndoHistory) {
+      _undoStack.removeAt(0);
+    }
     _undoStack.add(NotebookUndoState(
       pages: List<PageModel>.from(notebook.pages),
       currentPageIndex: _currentPageIndex,
@@ -1034,6 +1535,9 @@ class NotebookEditorState extends ChangeNotifier {
     if (_redoStack.isEmpty) return;
     _clearLassoSelection();
     final next = _redoStack.removeLast();
+    if (_undoStack.length >= maxUndoHistory) {
+      _undoStack.removeAt(0);
+    }
     _undoStack.add(NotebookUndoState(
       pages: List<PageModel>.from(notebook.pages),
       currentPageIndex: _currentPageIndex,

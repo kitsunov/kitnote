@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/utils/bezier_curve.dart';
 import '../../../models/point_model.dart';
@@ -74,33 +75,40 @@ class CanvasPainter extends CustomPainter {
         opacity: opacity,
         toolType: activeTool,
       );
-      _drawSingleStroke(canvas, tempStroke);
+      drawSingleStroke(canvas, tempStroke);
     }
 
     // 5. Draw Lasso selection loop
     if (lassoPoints.isNotEmpty) {
-      final lassoPaint = Paint()
-        ..color = const Color(0xFF2563EB)
-        ..strokeWidth = 1.8
-        ..style = PaintingStyle.stroke;
-
-      final lassoFill = Paint()
-        ..color = const Color(0x1A2563EB)
-        ..style = PaintingStyle.fill;
-
-      final path = Path()..moveTo(lassoPoints.first.dx, lassoPoints.first.dy);
-      for (int i = 1; i < lassoPoints.length; i++) {
-        path.lineTo(lassoPoints[i].dx, lassoPoints[i].dy);
-      }
-      if (!isLassoActive) {
-        path.close();
-        canvas.drawPath(path, lassoFill);
-      }
-      canvas.drawPath(path, lassoPaint);
+      drawLassoLoop(canvas, lassoPoints, isLassoActive);
     }
   }
 
-  void _drawSingleStroke(Canvas canvas, StrokeModel stroke) {
+  static void drawLassoLoop(Canvas canvas, List<Offset> lassoPoints, bool isLassoActive) {
+    if (lassoPoints.isEmpty) return;
+    final lassoPaint = Paint()
+      ..color = const Color(0xFF2563EB)
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke;
+
+    final lassoFill = Paint()
+      ..color = const Color(0x1A2563EB)
+      ..style = PaintingStyle.fill;
+
+    final path = Path()..moveTo(lassoPoints.first.dx, lassoPoints.first.dy);
+    for (int i = 1; i < lassoPoints.length; i++) {
+      path.lineTo(lassoPoints[i].dx, lassoPoints[i].dy);
+    }
+    if (!isLassoActive) {
+      path.close();
+      canvas.drawPath(path, lassoFill);
+    }
+    canvas.drawPath(path, lassoPaint);
+  }
+
+  void _drawSingleStroke(Canvas canvas, StrokeModel stroke) => drawSingleStroke(canvas, stroke);
+
+  static void drawSingleStroke(Canvas canvas, StrokeModel stroke) {
     if (stroke.points.isEmpty) return;
 
     if (stroke.points.length == 1) {
@@ -132,6 +140,13 @@ class CanvasPainter extends CustomPainter {
       // Fountain Pen: pressure & speed modulated width (0.35x - 1.5x)
       final baseWidth = stroke.strokeWidth;
       final baseColor = stroke.color;
+      final minWidth = math.max(0.2, baseWidth * 0.2);
+      final maxWidth = math.max(minWidth, baseWidth * 2.2);
+      final segPaint = Paint()
+        ..color = baseColor
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
 
       for (int i = 0; i < stroke.points.length - 1; i++) {
         final p0 = stroke.points[i];
@@ -149,16 +164,8 @@ class CanvasPainter extends CustomPainter {
           press1 = speedFactor;
         }
 
-        final minWidth = math.min(0.2, baseWidth * 0.2);
-        final maxWidth = math.max(minWidth, baseWidth * 2.2);
         final w = (baseWidth * (0.35 + 0.85 * ((press0 + press1) / 2))).clamp(minWidth, maxWidth);
-
-        final segPaint = Paint()
-          ..color = baseColor
-          ..strokeWidth = w
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..style = PaintingStyle.stroke;
+        segPaint.strokeWidth = w;
 
         canvas.drawLine(p0.toOffset(), p1.toOffset(), segPaint);
       }
@@ -167,6 +174,13 @@ class CanvasPainter extends CustomPainter {
       final baseWidth = stroke.strokeWidth;
       final baseColor = stroke.color;
       final total = stroke.points.length;
+      final minWidth = math.max(0.2, baseWidth * 0.2);
+      final maxWidth = math.max(minWidth, baseWidth * 2.5);
+      final segPaint = Paint()
+        ..color = baseColor
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
 
       for (int i = 0; i < stroke.points.length - 1; i++) {
         final p0 = stroke.points[i];
@@ -185,19 +199,42 @@ class CanvasPainter extends CustomPainter {
         final angleFactor = 0.45 + 0.75 * math.sin(angle + math.pi / 4).abs();
 
         final p0Press = p0.pressure > 0 ? p0.pressure : 0.8;
-        final minWidth = math.min(0.2, baseWidth * 0.2);
-        final maxWidth = math.max(minWidth, baseWidth * 2.5);
         final w = (baseWidth * angleFactor * taper * (0.5 + 0.6 * p0Press)).clamp(minWidth, maxWidth);
-
-        final segPaint = Paint()
-          ..color = baseColor
-          ..strokeWidth = w
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round
-          ..style = PaintingStyle.stroke;
+        segPaint.strokeWidth = w;
 
         canvas.drawLine(p0.toOffset(), p1.toOffset(), segPaint);
       }
+    } else if (stroke.toolType == ToolType.laserPointer) {
+      final path = BezierCurveUtils.generateSmoothPath(stroke.points);
+      final glowPaint = Paint()
+        ..color = const Color(0x99EF4444)
+        ..strokeWidth = stroke.strokeWidth * 2.4
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0);
+      final corePaint = Paint()
+        ..color = const Color(0xFFFF4D4D)
+        ..strokeWidth = stroke.strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke;
+      canvas.drawPath(path, glowPaint);
+      canvas.drawPath(path, corePaint);
+
+      final lastPt = stroke.points.last.toOffset();
+      canvas.drawCircle(
+        lastPt,
+        stroke.strokeWidth * 1.4,
+        Paint()
+          ..color = const Color(0xAAEF4444)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0),
+      );
+      canvas.drawCircle(
+        lastPt,
+        stroke.strokeWidth * 0.65,
+        Paint()..color = const Color(0xFFFFFFFF),
+      );
     } else {
       final paint = Paint()
         ..color = stroke.color
@@ -212,6 +249,76 @@ class CanvasPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CanvasPainter oldDelegate) {
-    return true; // Fast dynamic repaint during live inking
+    return activeStrokePoints.isNotEmpty ||
+        oldDelegate.activeStrokePoints.isNotEmpty ||
+        isLassoActive ||
+        oldDelegate.isLassoActive ||
+        !identical(strokes, oldDelegate.strokes) ||
+        strokes.length != oldDelegate.strokes.length ||
+        lassoPoints.length != oldDelegate.lassoPoints.length ||
+        selectedStrokeIds.length != oldDelegate.selectedStrokeIds.length ||
+        !setEquals(selectedStrokeIds, oldDelegate.selectedStrokeIds);
+  }
+}
+
+/// Dedicated painter for the in-progress active stroke, ephemeral laser strokes, and active lasso loop.
+/// Wrapped in its own [RepaintBoundary] so drawing at 60–120 FPS never repaints committed strokes.
+class ActiveStrokePainter extends CustomPainter {
+  final List<Point2D> activeStrokePoints;
+  final List<StrokeModel> laserStrokes;
+  final ToolType activeTool;
+  final int activeColor;
+  final double activeStrokeWidth;
+  final List<Offset> lassoPoints;
+  final bool isLassoActive;
+
+  const ActiveStrokePainter({
+    required this.activeStrokePoints,
+    this.laserStrokes = const [],
+    required this.activeTool,
+    required this.activeColor,
+    required this.activeStrokeWidth,
+    required this.lassoPoints,
+    required this.isLassoActive,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final laser in laserStrokes) {
+      CanvasPainter.drawSingleStroke(canvas, laser);
+    }
+
+    if (activeStrokePoints.isNotEmpty) {
+      final isHighlighter = activeTool == ToolType.highlighter;
+      final isLaser = activeTool == ToolType.laserPointer;
+      final opacity = isHighlighter ? 0.35 : 1.0;
+
+      final tempStroke = StrokeModel(
+        id: 'active_preview',
+        points: activeStrokePoints,
+        colorValue: isLaser ? 0xFFEF4444 : activeColor,
+        strokeWidth: isLaser ? 4.5 : activeStrokeWidth,
+        opacity: opacity,
+        toolType: activeTool,
+      );
+      CanvasPainter.drawSingleStroke(canvas, tempStroke);
+    }
+
+    if (lassoPoints.isNotEmpty) {
+      CanvasPainter.drawLassoLoop(canvas, lassoPoints, isLassoActive);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant ActiveStrokePainter oldDelegate) {
+    return activeStrokePoints.isNotEmpty ||
+        oldDelegate.activeStrokePoints.isNotEmpty ||
+        laserStrokes.length != oldDelegate.laserStrokes.length ||
+        isLassoActive ||
+        oldDelegate.isLassoActive ||
+        lassoPoints.length != oldDelegate.lassoPoints.length ||
+        activeTool != oldDelegate.activeTool ||
+        activeColor != oldDelegate.activeColor ||
+        activeStrokeWidth != oldDelegate.activeStrokeWidth;
   }
 }

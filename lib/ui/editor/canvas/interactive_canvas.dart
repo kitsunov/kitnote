@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -12,6 +12,7 @@ import '../../../models/page_model.dart';
 import '../../../models/point_model.dart';
 import '../../../models/text_element_model.dart';
 import '../../../models/tool_type.dart';
+import '../../../services/clipboard_service.dart';
 import '../../../state/notebook_editor_state.dart';
 import 'canvas_painter.dart';
 import 'paper_grid_painter.dart';
@@ -34,6 +35,13 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
   double _viewportHeight = 800.0;
   int _visibleStartPage = 0;
   int _visibleEndPage = 5;
+  bool _isHighZoom = false;
+
+  // Multi-finger quick tap tracking (2-finger tap = Undo, 3-finger tap = Redo)
+  final Map<int, Offset> _touchDownPositions = {};
+  DateTime? _multiTouchStartTime;
+  int _maxSimultaneousTouches = 0;
+  bool _multiTouchMovedTooMuch = false;
 
   @override
   void initState() {
@@ -129,10 +137,12 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
       cumulativeY = pageBottom;
     }
 
-    if (start != _visibleStartPage || end != _visibleEndPage) {
+    final highZoom = scale >= 1.85;
+    if (start != _visibleStartPage || end != _visibleEndPage || highZoom != _isHighZoom) {
       setState(() {
         _visibleStartPage = start;
         _visibleEndPage = end;
+        _isHighZoom = highZoom;
       });
     }
   }
@@ -304,90 +314,149 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
     final strings = AppLocalizations.of(context).strings;
     final pages = state.notebook.pages;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        _viewportHeight = constraints.maxHeight;
-        return Container(
-          color: Colors.grey.shade300,
-          child: Stack(
-            children: [
-              // Zoomable & Pannable Document Viewport with continuous vertical pages flow
-              InteractiveViewer(
-                transformationController: _transformController,
-                panEnabled: !_isDrawingWithStylus,
-                scaleEnabled: !_isDrawingWithStylus,
-                minScale: 0.25,
-                maxScale: 4.0,
-                boundaryMargin: const EdgeInsets.symmetric(horizontal: 400, vertical: 800),
-                constrained: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (int i = 0; i < pages.length; i++)
-                        _buildPageItem(context, state, i, pages[i], strings),
-                      _buildAddPageButton(context, state, strings),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Screen Ruler Overlay (if enabled)
-              if (state.isRulerEnabled)
-                RulerOverlay(
-                  position: state.rulerPosition,
-                  angle: state.rulerAngle,
-                  onTransform: (delta, angleDelta) {
-                    state.updateRulerTransform(delta, angleDelta);
-                  },
-                  onClose: () => state.toggleRuler(),
-                ),
-
-              // Lasso Selection Actions Bar
-              () {
-                final totalSelected = state.selectedStrokeIds.length +
-                    state.selectedTextIds.length +
-                    state.selectedImageIds.length;
-                if (totalSelected == 0) return const SizedBox.shrink();
-
-                return Positioned(
-                  top: 16,
-                  right: 16,
-                  child: Material(
-                    elevation: 6,
-                    borderRadius: BorderRadius.circular(20),
-                    color: Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '$totalSelected ${strings.lasso}',
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 6),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                            tooltip: strings.deletePage,
-                            onPressed: () => state.deleteLassoSelection(),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 20),
-                            tooltip: strings.cancel,
-                            onPressed: () => state.clearLassoSelection(),
-                          ),
-                        ],
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): () => state.undo(),
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () => state.undo(),
+        const SingleActivator(LogicalKeyboardKey.keyY, meta: true): () => state.redo(),
+        const SingleActivator(LogicalKeyboardKey.keyY, control: true): () => state.redo(),
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true, shift: true): () => state.redo(),
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true): () => state.redo(),
+        const SingleActivator(LogicalKeyboardKey.keyC, meta: true): () => state.copyLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.keyC, control: true): () => state.copyLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.keyX, meta: true): () => state.cutLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.keyX, control: true): () => state.cutLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.keyV, meta: true): () => state.pasteClipboard(),
+        const SingleActivator(LogicalKeyboardKey.keyV, control: true): () => state.pasteClipboard(),
+        const SingleActivator(LogicalKeyboardKey.delete): () => state.deleteLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.backspace): () => state.deleteLassoSelection(),
+        const SingleActivator(LogicalKeyboardKey.escape): () => state.clearLassoSelection(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Listener(
+          onPointerDown: (event) {
+            if (event.kind == PointerDeviceKind.touch) {
+              if (_touchDownPositions.isEmpty) {
+                _multiTouchStartTime = DateTime.now();
+                _maxSimultaneousTouches = 0;
+                _multiTouchMovedTooMuch = false;
+              }
+              _touchDownPositions[event.pointer] = event.position;
+              if (_touchDownPositions.length > _maxSimultaneousTouches) {
+                _maxSimultaneousTouches = _touchDownPositions.length;
+              }
+            }
+          },
+          onPointerMove: (event) {
+            final startPos = _touchDownPositions[event.pointer];
+            if (startPos != null && (event.position - startPos).distance > 22.0) {
+              _multiTouchMovedTooMuch = true;
+            }
+          },
+          onPointerUp: (event) {
+            if (_touchDownPositions.containsKey(event.pointer)) {
+              _touchDownPositions.remove(event.pointer);
+              if (_touchDownPositions.isEmpty &&
+                  !_isDrawingWithStylus &&
+                  !_multiTouchMovedTooMuch &&
+                  _multiTouchStartTime != null) {
+                final elapsedMs = DateTime.now().difference(_multiTouchStartTime!).inMilliseconds;
+                if (elapsedMs <= 320) {
+                  if (_maxSimultaneousTouches == 2 && state.canUndo) {
+                    state.undo();
+                  } else if (_maxSimultaneousTouches == 3 && state.canRedo) {
+                    state.redo();
+                  }
+                }
+                _multiTouchStartTime = null;
+                _maxSimultaneousTouches = 0;
+              }
+            }
+          },
+          onPointerCancel: (event) {
+            _touchDownPositions.remove(event.pointer);
+            if (_touchDownPositions.isEmpty) {
+              _multiTouchStartTime = null;
+              _maxSimultaneousTouches = 0;
+            }
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              _viewportHeight = constraints.maxHeight;
+              return Container(
+                color: Colors.grey.shade300,
+                child: Stack(
+                  children: [
+                    // Zoomable & Pannable Document Viewport with continuous vertical pages flow
+                    InteractiveViewer(
+                      transformationController: _transformController,
+                      panEnabled: !_isDrawingWithStylus,
+                      scaleEnabled: !_isDrawingWithStylus,
+                      minScale: 0.25,
+                      maxScale: 4.0,
+                      boundaryMargin: const EdgeInsets.symmetric(horizontal: 400, vertical: 800),
+                      constrained: false,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (int i = 0; i < pages.length; i++)
+                              _buildPageItem(context, state, i, pages[i], strings),
+                            _buildAddPageButton(context, state, strings),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }(),
-            ],
+
+                    // Lasso Selection Actions Bar
+                    () {
+                      final totalSelected = state.selectedStrokeIds.length +
+                          state.selectedTextIds.length +
+                          state.selectedImageIds.length;
+                      if (totalSelected == 0) return const SizedBox.shrink();
+
+                      return Positioned(
+                        top: 16,
+                        right: 16,
+                        child: Material(
+                          elevation: 6,
+                          borderRadius: BorderRadius.circular(20),
+                          color: Colors.white,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '$totalSelected ${strings.lasso}',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 6),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                  tooltip: strings.deletePage,
+                                  onPressed: () => state.deleteLassoSelection(),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 20),
+                                  tooltip: strings.cancel,
+                                  onPressed: () => state.clearLassoSelection(),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }(),
+                  ],
+                ),
+              );
+            },
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -433,6 +502,39 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
             ),
           ),
           const Spacer(),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: Icon(
+                page.isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                color: page.isBookmarked ? Colors.amber.shade700 : Colors.black45,
+                size: 18,
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: strings.bookmark,
+              onPressed: () => state.togglePageBookmark(pageIndex),
+            ),
+          ),
+          ListenableBuilder(
+            listenable: ClipboardService(),
+            builder: (context, _) {
+              if (!ClipboardService().hasContent) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: IconButton(
+                  icon: const Icon(Icons.content_paste, color: Colors.blueAccent, size: 18),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Paste',
+                  onPressed: () {
+                    state.setActivePageIndex(pageIndex);
+                    state.pasteClipboard();
+                  },
+                ),
+              );
+            },
+          ),
           if (state.notebook.pages.length > 1)
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
@@ -587,14 +689,17 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                       pdfPath: state.notebook.sourcePdfPath!,
                       pageIndex: page.pdfPageIndex ?? pageIndex,
                       pageLabel: strings.page,
+                      dpi: _isHighZoom ? 240.0 : 150.0,
                     ),
                   ),
 
                 // 1. Paper template pattern (ruled lines, grid, cornell) for regular notebooks
                 if (!isPdf)
                   Positioned.fill(
-                    child: CustomPaint(
-                      painter: PaperGridPainter(template: page.template),
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: PaperGridPainter(template: page.template),
+                      ),
                     ),
                   ),
 
@@ -603,21 +708,40 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     .where((img) => img.isBackground)
                     .map((img) => _buildImageWidget(context, state, page, pageIndex, img, strings)),
 
-                // 3. Vector Inking Canvas (Strokes + Highlighter + Lasso)
+                // 3a. Committed Vector Inking Layer (cached in GPU texture via RepaintBoundary)
                 Positioned.fill(
-                  child: CustomPaint(
-                    painter: CanvasPainter(
-                      strokes: page.strokes,
-                      activeStrokePoints:
-                          (_isDrawingWithStylus && _drawingPageIndex == pageIndex) ? state.activeStrokePoints : const [],
-                      activeTool: state.activeTool,
-                      activeColor: state.activeColor,
-                      activeStrokeWidth: state.activeTool == ToolType.highlighter
-                          ? state.highlighterWidth
-                          : state.activeStrokeWidth,
-                      lassoPoints: (state.currentPageIndex == pageIndex && state.isLassoActive) ? state.lassoPoints : const [],
-                      isLassoActive: state.currentPageIndex == pageIndex && state.isLassoActive,
-                      selectedStrokeIds: state.currentPageIndex == pageIndex ? state.selectedStrokeIds : const {},
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: CanvasPainter(
+                        strokes: page.strokes,
+                        activeStrokePoints: const [],
+                        activeTool: state.activeTool,
+                        activeColor: state.activeColor,
+                        activeStrokeWidth: state.activeStrokeWidth,
+                        lassoPoints: const [],
+                        isLassoActive: false,
+                        selectedStrokeIds: state.currentPageIndex == pageIndex ? state.selectedStrokeIds : const {},
+                      ),
+                    ),
+                  ),
+                ),
+
+                // 3b. Active In-Progress Stroke, Laser Pointer & Lasso Layer (repaints independently at 60-120 FPS)
+                Positioned.fill(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: ActiveStrokePainter(
+                        activeStrokePoints:
+                            (_isDrawingWithStylus && _drawingPageIndex == pageIndex) ? state.activeStrokePoints : const [],
+                        laserStrokes: state.currentPageIndex == pageIndex ? state.laserStrokes : const [],
+                        activeTool: state.activeTool,
+                        activeColor: state.activeColor,
+                        activeStrokeWidth: state.activeTool == ToolType.highlighter
+                            ? state.highlighterWidth
+                            : state.activeStrokeWidth,
+                        lassoPoints: (state.currentPageIndex == pageIndex && state.isLassoActive) ? state.lassoPoints : const [],
+                        isLassoActive: state.currentPageIndex == pageIndex && state.isLassoActive,
+                      ),
                     ),
                   ),
                 ),
@@ -638,7 +762,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     final bbox = state.lassoBoundingBox!.inflate(8.0);
                     final isTop = bbox.top > 56;
                     final menuY = isTop ? bbox.top - 46.0 : bbox.bottom + 10.0;
-                    final menuX = (bbox.center.dx - 140.0).clamp(10.0, (page.width - 290.0).clamp(10.0, double.infinity));
+                    final menuX = (bbox.center.dx - 170.0).clamp(10.0, (page.width - 350.0).clamp(10.0, double.infinity));
 
                     return Stack(
                       clipBehavior: Clip.none,
@@ -649,11 +773,19 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                           width: bbox.width,
                           height: bbox.height,
                           child: GestureDetector(
+                            onPanStart: (_) => state.recordUndoSnapshot(),
                             onPanUpdate: (details) {
                               final scale = _transformController.value.getMaxScaleOnAxis();
                               final effectiveScale = scale > 0 ? scale : 1.0;
-                              state.translateLassoSelection(details.delta.dx / effectiveScale, details.delta.dy / effectiveScale);
+                              state.translateLassoSelection(
+                                details.delta.dx / effectiveScale,
+                                details.delta.dy / effectiveScale,
+                                recordUndo: false,
+                                save: false,
+                              );
                             },
+                            onPanEnd: (_) => state.commitToStorage(),
+                            onPanCancel: () => state.commitToStorage(),
                             child: Container(
                               decoration: BoxDecoration(
                                 color: Colors.blue.withValues(alpha: 0.08),
@@ -663,6 +795,43 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                                 ),
                                 borderRadius: BorderRadius.circular(8),
                               ),
+                            ),
+                          ),
+                        ),
+                        // Corner scale handle for Lasso selection at bottom-right
+                        Positioned(
+                          left: bbox.right - 13,
+                          top: bbox.bottom - 13,
+                          child: GestureDetector(
+                            onPanStart: (_) => state.recordUndoSnapshot(),
+                            onPanUpdate: (details) {
+                              final scale = _transformController.value.getMaxScaleOnAxis();
+                              final effectiveScale = scale > 0 ? scale : 1.0;
+                              final delta = details.delta / effectiveScale;
+                              final baseSize = math.max(40.0, math.max(bbox.width, bbox.height));
+                              final proj = (delta.dx + delta.dy) * 0.5;
+                              final factor = (1.0 + proj / baseSize).clamp(0.85, 1.18);
+                              state.scaleLassoSelection(
+                                factor,
+                                anchor: bbox.topLeft,
+                                recordUndo: false,
+                                save: false,
+                              );
+                            },
+                            onPanEnd: (_) => state.commitToStorage(),
+                            onPanCancel: () => state.commitToStorage(),
+                            child: Container(
+                              width: 26,
+                              height: 26,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.blue.shade600, width: 2),
+                                boxShadow: const [
+                                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                                ],
+                              ),
+                              child: Icon(Icons.open_in_full, size: 14, color: Colors.blue.shade600),
                             ),
                           ),
                         ),
@@ -683,6 +852,22 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.content_copy, size: 18, color: Colors.teal),
+                                    tooltip: 'Copy',
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => state.copyLassoSelection(),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  IconButton(
+                                    icon: const Icon(Icons.content_cut, size: 18, color: Colors.deepOrange),
+                                    tooltip: 'Cut',
+                                    padding: const EdgeInsets.all(6),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => state.cutLassoSelection(),
+                                  ),
+                                  const SizedBox(width: 2),
                                   IconButton(
                                     icon: const Icon(Icons.copy, size: 18, color: Colors.blue),
                                     tooltip: strings.duplicate,
@@ -739,6 +924,18 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     );
                   }(),
                 ],
+
+                // 7. Page-Space Ruler Overlay (aligned 1:1 with canvas stroke coordinates)
+                if (state.isRulerEnabled && state.currentPageIndex == pageIndex)
+                  RulerOverlay(
+                    position: state.rulerPosition,
+                    angle: state.rulerAngle,
+                    onTransform: (delta, angleDelta) {
+                      state.updateRulerTransform(delta, angleDelta);
+                    },
+                    onSnapAngle: () => state.snapRulerToNextPresetAngle(),
+                    onClose: () => state.toggleRuler(),
+                  ),
               ],
             ),
           ),
@@ -748,10 +945,22 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
   }
 
   bool _isPointerOverInteractive(Offset canvasPt, PageModel page, NotebookEditorState state, int pageIndex) {
+    if (state.isRulerEnabled && state.currentPageIndex == pageIndex) {
+      final dx = canvasPt.dx - state.rulerPosition.dx;
+      final dy = canvasPt.dy - state.rulerPosition.dy;
+      final cosA = math.cos(-state.rulerAngle);
+      final sinA = math.sin(-state.rulerAngle);
+      final localX = dx * cosA - dy * sinA;
+      final localY = dx * sinA + dy * cosA;
+      if (localX.abs() <= 245.0 && localY.abs() <= 28.0) {
+        return true;
+      }
+    }
+
     if (state.currentPageIndex == pageIndex &&
         (state.selectedStrokeIds.isNotEmpty || state.selectedTextIds.isNotEmpty || state.selectedImageIds.isNotEmpty) &&
         state.lassoBoundingBox != null) {
-      if (state.lassoBoundingBox!.inflate(14.0).contains(canvasPt)) {
+      if (state.lassoBoundingBox!.inflate(24.0).contains(canvasPt)) {
         return true;
       }
     }
@@ -786,8 +995,12 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
       final layerToggleRect = Rect.fromLTWH(img.x - 16, img.y - 16, 36, 36);
       final deleteRect = Rect.fromLTWH(img.x + img.width - 20, img.y - 16, 36, 36);
       final resizeRect = Rect.fromLTWH(img.x + img.width - 16, img.y + img.height - 16, 36, 36);
+      final rotateRect = Rect.fromLTWH(img.x - 16, img.y + img.height - 20, 36, 36);
 
-      if (layerToggleRect.contains(canvasPt) || deleteRect.contains(canvasPt) || resizeRect.contains(canvasPt)) {
+      if (layerToggleRect.contains(canvasPt) ||
+          deleteRect.contains(canvasPt) ||
+          resizeRect.contains(canvasPt) ||
+          rotateRect.contains(canvasPt)) {
         return true;
       }
 
@@ -825,6 +1038,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 if (state.currentPageIndex != pageIndex) {
                   state.setActivePageIndex(pageIndex);
                 }
+                state.recordUndoSnapshot();
               },
               onPanUpdate: (details) {
                 final scale = _transformController.value.getMaxScaleOnAxis();
@@ -833,8 +1047,12 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 state.moveImageElementWithCrossPage(
                   img.id,
                   Offset(img.x + delta.dx, img.y + delta.dy),
+                  recordUndo: false,
+                  save: false,
                 );
               },
+              onPanEnd: (_) => state.commitToStorage(),
+              onPanCancel: () => state.commitToStorage(),
               onLongPress: () => _confirmDeleteImage(context, state, img.id),
               child: Container(
                 width: img.width,
@@ -906,11 +1124,37 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 ),
               ),
             ),
+            // Rotate 90° badge at bottom-left
+            Positioned(
+              left: -8,
+              bottom: -8,
+              child: GestureDetector(
+                onTap: () => state.rotateImageElement(img.id, math.pi / 2),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.indigo, width: 1.5),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.rotate_right,
+                    size: 14,
+                    color: Colors.indigo,
+                  ),
+                ),
+              ),
+            ),
             // Corner resize handle at bottom-right
             Positioned(
               right: -10,
               bottom: -10,
               child: GestureDetector(
+                onPanStart: (_) => state.recordUndoSnapshot(),
                 onPanUpdate: (details) {
                   final scale = _transformController.value.getMaxScaleOnAxis();
                   final effectiveScale = scale > 0 ? scale : 1.0;
@@ -919,8 +1163,12 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                     img.id,
                     (img.width + delta.dx).clamp(40.0, page.width * 2),
                     (img.height + delta.dy).clamp(40.0, page.height * 2),
+                    recordUndo: false,
+                    save: false,
                   );
                 },
+                onPanEnd: (_) => state.commitToStorage(),
+                onPanCancel: () => state.commitToStorage(),
                 child: Container(
                   width: 26,
                   height: 26,
@@ -983,6 +1231,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
               if (state.currentPageIndex != pageIndex) {
                 state.setActivePageIndex(pageIndex);
               }
+              state.recordUndoSnapshot();
             },
             onPanUpdate: (details) {
               final scale = _transformController.value.getMaxScaleOnAxis();
@@ -991,8 +1240,12 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
               state.moveTextElementWithCrossPage(
                 txt.id,
                 Offset(txt.x + delta.dx, txt.y + delta.dy),
+                recordUndo: false,
+                save: false,
               );
             },
+            onPanEnd: (_) => state.commitToStorage(),
+            onPanCancel: () => state.commitToStorage(),
             child: Container(
               width: txt.width,
               padding: const EdgeInsets.all(8),
@@ -1040,6 +1293,7 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
             right: -8,
             bottom: -8,
             child: GestureDetector(
+              onPanStart: (_) => state.recordUndoSnapshot(),
               onPanUpdate: (details) {
                 final scale = _transformController.value.getMaxScaleOnAxis();
                 final effectiveScale = scale > 0 ? scale : 1.0;
@@ -1048,11 +1302,17 @@ class _InteractiveCanvasState extends State<InteractiveCanvas> {
                 final newWidth = (txt.width + delta.dx).clamp(80.0, maxWidth);
                 final widthRatio = newWidth / txt.width;
                 final newFontSize = (txt.fontSize * widthRatio).clamp(10.0, 72.0);
-                state.updateTextElement(txt.copyWith(
-                  width: newWidth,
-                  fontSize: newFontSize,
-                ));
+                state.updateTextElement(
+                  txt.copyWith(
+                    width: newWidth,
+                    fontSize: newFontSize,
+                  ),
+                  recordUndo: false,
+                  save: false,
+                );
               },
+              onPanEnd: (_) => state.commitToStorage(),
+              onPanCancel: () => state.commitToStorage(),
               child: Container(
                 width: 22,
                 height: 22,
@@ -1101,11 +1361,13 @@ class _PdfPageBackground extends StatefulWidget {
   final String pdfPath;
   final int pageIndex;
   final String pageLabel;
+  final double dpi;
 
   const _PdfPageBackground({
     required this.pdfPath,
     required this.pageIndex,
     required this.pageLabel,
+    this.dpi = 150.0,
   });
 
   @override
@@ -1114,6 +1376,7 @@ class _PdfPageBackground extends StatefulWidget {
 
 class _PdfPageBackgroundState extends State<_PdfPageBackground> {
   Future<Uint8List?>? _renderFuture;
+  Uint8List? _lastRenderedBytes;
 
   @override
   void initState() {
@@ -1125,12 +1388,19 @@ class _PdfPageBackgroundState extends State<_PdfPageBackground> {
   void didUpdateWidget(covariant _PdfPageBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pdfPath != widget.pdfPath || oldWidget.pageIndex != widget.pageIndex) {
+      _lastRenderedBytes = null;
+      _loadPage();
+    } else if (oldWidget.dpi != widget.dpi) {
       _loadPage();
     }
   }
 
   void _loadPage() {
-    _renderFuture = PdfVirtualCache().renderPage(widget.pdfPath, widget.pageIndex);
+    _renderFuture = PdfVirtualCache().renderPage(
+      widget.pdfPath,
+      widget.pageIndex,
+      dpi: widget.dpi,
+    );
   }
 
   @override
@@ -1140,9 +1410,18 @@ class _PdfPageBackgroundState extends State<_PdfPageBackground> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.done) {
           if (snapshot.data != null) {
+            _lastRenderedBytes = snapshot.data;
             return Image.memory(
               snapshot.data!,
               fit: BoxFit.contain,
+              gaplessPlayback: true,
+            );
+          }
+          if (_lastRenderedBytes != null) {
+            return Image.memory(
+              _lastRenderedBytes!,
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
             );
           }
           final strings = AppLocalizations.of(context).strings;
@@ -1175,6 +1454,13 @@ class _PdfPageBackgroundState extends State<_PdfPageBackground> {
                 ],
               ),
             ),
+          );
+        }
+        if (_lastRenderedBytes != null) {
+          return Image.memory(
+            _lastRenderedBytes!,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
           );
         }
         return Container(

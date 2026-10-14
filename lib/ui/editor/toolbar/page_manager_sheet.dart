@@ -2,13 +2,24 @@ import 'package:flutter/material.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../models/page_template_model.dart';
+import '../../../models/tool_type.dart';
 import '../../../state/notebook_editor_state.dart';
+import '../canvas/canvas_painter.dart';
 import '../canvas/paper_grid_painter.dart';
 
-class PageManagerSheet extends StatelessWidget {
+class PageManagerSheet extends StatefulWidget {
   final NotebookEditorState state;
 
   const PageManagerSheet({super.key, required this.state});
+
+  @override
+  State<PageManagerSheet> createState() => _PageManagerSheetState();
+}
+
+class _PageManagerSheetState extends State<PageManagerSheet> {
+  bool _onlyBookmarked = false;
+
+  NotebookEditorState get state => widget.state;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +30,10 @@ class PageManagerSheet extends StatelessWidget {
       builder: (context, _) {
         final notebook = state.notebook;
         final pages = notebook.pages;
+        final visibleIndices = <int>[
+          for (int i = 0; i < pages.length; i++)
+            if (!_onlyBookmarked || pages[i].isBookmarked) i,
+        ];
 
         return Container(
           height: MediaQuery.of(context).size.height * 0.75,
@@ -34,9 +49,25 @@ class PageManagerSheet extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${strings.page} (${pages.length})',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Text(
+                        '${strings.page} (${pages.length})',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 12),
+                      FilterChip(
+                        avatar: Icon(
+                          _onlyBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                          size: 16,
+                          color: _onlyBookmarked ? Colors.amber.shade800 : Colors.grey.shade700,
+                        ),
+                        label: Text(strings.bookmark),
+                        selected: _onlyBookmarked,
+                        selectedColor: Colors.amber.shade100,
+                        onSelected: (val) => setState(() => _onlyBookmarked = val),
+                      ),
+                    ],
                   ),
                   Row(
                     children: [
@@ -66,202 +97,264 @@ class PageManagerSheet extends StatelessWidget {
 
               // Pages Grid
               Expanded(
-                child: GridView.builder(
-                  itemCount: pages.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 0.75,
-                  ),
-                  itemBuilder: (context, index) {
-                    final page = pages[index];
-                    final isCurrent = index == state.currentPageIndex;
-
-                    return InkWell(
-                      onTap: () {
-                        state.goToPage(index);
-                        Navigator.pop(context);
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Page Thumbnail Preview
-                          Expanded(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: page.template.backgroundColor,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isCurrent ? Colors.blue : Colors.grey.shade300,
-                                  width: isCurrent ? 2.5 : 1.0,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: isCurrent
-                                        ? Colors.blue.withValues(alpha: 0.2)
-                                        : Colors.black.withValues(alpha: 0.05),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: CustomPaint(
-                                        painter: PaperGridPainter(template: page.template),
-                                      ),
-                                    ),
-                                  ),
-                                  if (page.isBookmarked)
-                                    Positioned(
-                                      top: 6,
-                                      right: 6,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: const BoxDecoration(
-                                          color: Colors.white,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
-                                          ],
-                                        ),
-                                        child: const Icon(Icons.bookmark, color: Colors.amber, size: 16),
-                                      ),
-                                    ),
-                                ],
-                              ),
+                child: visibleIndices.isEmpty
+                    ? Center(
+                        child: Text(
+                          strings.bookmark,
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 15),
+                        ),
+                      )
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final crossAxisCount = constraints.maxWidth >= 840
+                              ? 4
+                              : (constraints.maxWidth >= 520 ? 3 : 2);
+                          return GridView.builder(
+                            itemCount: visibleIndices.length,
+                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: crossAxisCount,
+                              crossAxisSpacing: 16,
+                              mainAxisSpacing: 16,
+                              childAspectRatio: 0.75,
                             ),
-                          ),
-                          const SizedBox(height: 6),
+                            itemBuilder: (context, gridIdx) {
+                          final index = visibleIndices[gridIdx];
+                          final page = pages[index];
+                          final isCurrent = index == state.currentPageIndex;
 
-                          // Page Info & Options Menu
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${strings.page} ${index + 1}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                                    color: isCurrent ? Colors.blue : Colors.black87,
+                          return InkWell(
+                            onTap: () {
+                              state.goToPage(index);
+                              Navigator.pop(context);
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Page Thumbnail Preview (Paper Template + Live Vector Strokes)
+                                Expanded(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: page.template.backgroundColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isCurrent ? Colors.blue : Colors.grey.shade300,
+                                        width: isCurrent ? 2.5 : 1.0,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: isCurrent
+                                              ? Colors.blue.withValues(alpha: 0.2)
+                                              : Colors.black.withValues(alpha: 0.05),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Stack(
+                                      children: [
+                                        Positioned.fill(
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(10),
+                                            child: FittedBox(
+                                              fit: BoxFit.contain,
+                                              child: SizedBox(
+                                                width: page.width,
+                                                height: page.height,
+                                                child: Stack(
+                                                  children: [
+                                                    Positioned.fill(
+                                                      child: CustomPaint(
+                                                        painter: PaperGridPainter(template: page.template),
+                                                      ),
+                                                    ),
+                                                    if (page.strokes.isNotEmpty)
+                                                      Positioned.fill(
+                                                        child: CustomPaint(
+                                                          painter: CanvasPainter(
+                                                            strokes: page.strokes,
+                                                            activeStrokePoints: const [],
+                                                            activeTool: ToolType.fountainPen,
+                                                            activeColor: 0xFF000000,
+                                                            activeStrokeWidth: 2.0,
+                                                            lassoPoints: const [],
+                                                            isLassoActive: false,
+                                                            selectedStrokeIds: const {},
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        if (page.isBookmarked)
+                                          Positioned(
+                                            top: 6,
+                                            right: 6,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: const BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+                                                ],
+                                              ),
+                                              child: const Icon(Icons.bookmark, color: Colors.amber, size: 16),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
-                                padding: EdgeInsets.zero,
-                                itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    value: 'bookmark',
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          page.isBookmarked ? Icons.bookmark_remove : Icons.bookmark_add,
-                                          size: 18,
-                                          color: Colors.amber.shade700,
+                                const SizedBox(height: 6),
+
+                                // Page Info & Options Menu
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${strings.page} ${index + 1}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                          color: isCurrent ? Colors.blue : Colors.black87,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(strings.bookmark),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'insertAfter',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.post_add, size: 18, color: Colors.blue),
-                                        const SizedBox(width: 8),
-                                        Text(strings.insertPageAfter),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'duplicate',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.copy, size: 18, color: Colors.blueGrey),
-                                        const SizedBox(width: 8),
-                                        Text(strings.duplicatePage),
-                                      ],
-                                    ),
-                                  ),
-                                  if (index > 0)
-                                    PopupMenuItem(
-                                      value: 'moveLeft',
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.arrow_back, size: 18, color: Colors.blueGrey),
-                                          const SizedBox(width: 8),
-                                          Text(strings.movePageLeft),
-                                        ],
                                       ),
                                     ),
-                                  if (index < pages.length - 1)
-                                    PopupMenuItem(
-                                      value: 'moveRight',
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.arrow_forward, size: 18, color: Colors.blueGrey),
-                                          const SizedBox(width: 8),
-                                          Text(strings.movePageRight),
-                                        ],
-                                      ),
-                                    ),
-                                  PopupMenuItem(
-                                    value: 'template',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.grid_on, size: 18, color: Colors.indigo),
-                                        const SizedBox(width: 8),
-                                        Text(strings.changeTemplate),
+                                    PopupMenuButton<String>(
+                                      icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
+                                      padding: EdgeInsets.zero,
+                                      itemBuilder: (context) => [
+                                        PopupMenuItem(
+                                          value: 'bookmark',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                page.isBookmarked ? Icons.bookmark_remove : Icons.bookmark_add,
+                                                size: 18,
+                                                color: Colors.amber.shade700,
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(strings.bookmark),
+                                            ],
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'insertAfter',
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.post_add, size: 18, color: Colors.blue),
+                                              const SizedBox(width: 8),
+                                              Text(strings.insertPageAfter),
+                                            ],
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'duplicate',
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.copy, size: 18, color: Colors.blueGrey),
+                                              const SizedBox(width: 8),
+                                              Text(strings.duplicatePage),
+                                            ],
+                                          ),
+                                        ),
+                                        if (index > 0)
+                                          PopupMenuItem(
+                                            value: 'moveLeft',
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.arrow_back, size: 18, color: Colors.blueGrey),
+                                                const SizedBox(width: 8),
+                                                Text(strings.movePageLeft),
+                                              ],
+                                            ),
+                                          ),
+                                        if (index < pages.length - 1)
+                                          PopupMenuItem(
+                                            value: 'moveRight',
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.arrow_forward, size: 18, color: Colors.blueGrey),
+                                                const SizedBox(width: 8),
+                                                Text(strings.movePageRight),
+                                              ],
+                                            ),
+                                          ),
+                                        PopupMenuItem(
+                                          value: 'template',
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.grid_on, size: 18, color: Colors.indigo),
+                                              const SizedBox(width: 8),
+                                              Text(strings.changeTemplate),
+                                            ],
+                                          ),
+                                        ),
+                                        if (page.strokes.isNotEmpty ||
+                                            page.textElements.isNotEmpty ||
+                                            page.imageElements.isNotEmpty)
+                                          PopupMenuItem(
+                                            value: 'clearPage',
+                                            child: Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.cleaning_services_outlined,
+                                                  size: 18,
+                                                  color: Colors.deepOrange,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(strings.strokeEraser),
+                                              ],
+                                            ),
+                                          ),
+                                        if (pages.length > 1)
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                                const SizedBox(width: 8),
+                                                Text(strings.deletePage, style: const TextStyle(color: Colors.red)),
+                                              ],
+                                            ),
+                                          ),
                                       ],
+                                      onSelected: (action) {
+                                        if (action == 'bookmark') {
+                                          state.togglePageBookmark(index);
+                                        } else if (action == 'insertAfter') {
+                                          state.insertPageAfter(index);
+                                        } else if (action == 'duplicate') {
+                                          state.duplicatePageAt(index);
+                                        } else if (action == 'moveLeft') {
+                                          state.movePage(index, index - 1);
+                                        } else if (action == 'moveRight') {
+                                          state.movePage(index, index + 1);
+                                        } else if (action == 'template') {
+                                          _showPageTemplateDialog(context, state, index, strings);
+                                        } else if (action == 'clearPage') {
+                                          state.clearPageAt(index);
+                                        } else if (action == 'delete') {
+                                          _confirmDeletePage(context, state, index, strings);
+                                        }
+                                      },
                                     ),
-                                  ),
-                                  if (pages.length > 1)
-                                    PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                                          const SizedBox(width: 8),
-                                          Text(strings.deletePage, style: const TextStyle(color: Colors.red)),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                                onSelected: (action) {
-                                  if (action == 'bookmark') {
-                                    state.togglePageBookmark(index);
-                                  } else if (action == 'insertAfter') {
-                                    state.insertPageAfter(index);
-                                  } else if (action == 'duplicate') {
-                                    state.duplicatePageAt(index);
-                                  } else if (action == 'moveLeft') {
-                                    state.movePage(index, index - 1);
-                                  } else if (action == 'moveRight') {
-                                    state.movePage(index, index + 1);
-                                  } else if (action == 'template') {
-                                    _showPageTemplateDialog(context, state, index, strings);
-                                  } else if (action == 'delete') {
-                                    _confirmDeletePage(context, state, index, strings);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
               ),
             ],
           ),

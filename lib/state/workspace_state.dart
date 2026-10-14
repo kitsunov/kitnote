@@ -1,6 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WorkspaceState extends ChangeNotifier {
+  static const String _prefsOpenTabsKey = 'workspace_open_notebooks';
+  static const String _prefsActiveTabKey = 'workspace_active_tab';
+
   final List<String> _openNotebookIds = [];
   int _activeTabIndex = 0;
 
@@ -8,6 +12,10 @@ class WorkspaceState extends ChangeNotifier {
   bool _isSplitScreen = false;
   String? _secondaryNotebookId;
   double _splitRatio = 0.5; // 50/50 default
+
+  WorkspaceState() {
+    restoreSession();
+  }
 
   List<String> get openNotebookIds => List.unmodifiable(_openNotebookIds);
   int get activeTabIndex => _activeTabIndex;
@@ -22,6 +30,27 @@ class WorkspaceState extends ChangeNotifier {
     return _openNotebookIds[_activeTabIndex];
   }
 
+  Future<void> restoreSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedIds = prefs.getStringList(_prefsOpenTabsKey);
+      final savedActive = prefs.getInt(_prefsActiveTabKey) ?? 0;
+      if (savedIds != null && savedIds.isNotEmpty && _openNotebookIds.isEmpty) {
+        _openNotebookIds.addAll(savedIds);
+        _activeTabIndex = savedActive.clamp(0, _openNotebookIds.length - 1);
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsOpenTabsKey, _openNotebookIds);
+      await prefs.setInt(_prefsActiveTabKey, _activeTabIndex);
+    } catch (_) {}
+  }
+
   void openNotebook(String notebookId) {
     final existingIndex = _openNotebookIds.indexOf(notebookId);
     if (existingIndex != -1) {
@@ -30,12 +59,14 @@ class WorkspaceState extends ChangeNotifier {
       _openNotebookIds.add(notebookId);
       _activeTabIndex = _openNotebookIds.length - 1;
     }
+    _persistSession();
     notifyListeners();
   }
 
   void switchTab(int index) {
     if (index >= 0 && index < _openNotebookIds.length) {
       _activeTabIndex = index;
+      _persistSession();
       notifyListeners();
     }
   }
@@ -69,6 +100,7 @@ class WorkspaceState extends ChangeNotifier {
         _activeTabIndex = newActiveIndex != -1 ? newActiveIndex : 0;
       }
     }
+    _persistSession();
     notifyListeners();
   }
 

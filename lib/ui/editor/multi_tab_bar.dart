@@ -92,7 +92,12 @@ class MultiTabBar extends StatelessWidget {
                         const SizedBox(width: 8),
                         // Close tab
                         GestureDetector(
-                          onTap: () => workspace.closeTab(index),
+                          onTap: () {
+                            workspace.closeTab(index);
+                            if (!workspace.openNotebookIds.contains(id)) {
+                              library.releaseEditor(id);
+                            }
+                          },
                           child: Container(
                             padding: const EdgeInsets.all(2),
                             decoration: const BoxDecoration(
@@ -108,6 +113,60 @@ class MultiTabBar extends StatelessWidget {
                 );
               },
             ),
+          ),
+
+          // Quick Open / New Tab Button
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.add, size: 18, color: Colors.blueGrey),
+            tooltip: strings.newNotebook,
+            onSelected: (value) async {
+              if (value == '__new__') {
+                final nb = await library.createNotebook(title: strings.newNotebook);
+                workspace.openNotebook(nb.id);
+              } else {
+                workspace.openNotebook(value);
+              }
+            },
+            itemBuilder: (ctx) {
+              final unopened = library.notebooks
+                  .where((n) => !n.isDeleted && !openIds.contains(n.id))
+                  .toList();
+              return [
+                PopupMenuItem<String>(
+                  value: '__new__',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.add_circle_outline, size: 18, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text(strings.newNotebook, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                if (unopened.isNotEmpty) const PopupMenuDivider(),
+                ...unopened.take(10).map(
+                  (nb) => PopupMenuItem<String>(
+                    value: nb.id,
+                    child: Row(
+                      children: [
+                        Icon(
+                          nb.isPdfNotebook ? Icons.picture_as_pdf : Icons.book_outlined,
+                          size: 16,
+                          color: nb.isPdfNotebook ? Colors.red.shade600 : Color(nb.coverColor),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            nb.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ];
+            },
           ),
         ],
       ),

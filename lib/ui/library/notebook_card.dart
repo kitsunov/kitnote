@@ -24,6 +24,107 @@ class NotebookCard extends StatelessWidget {
     this.folderName,
   });
 
+  void _showEditNotebookDialog(BuildContext context, LibraryState library, AppStrings strings) {
+    final controller = TextEditingController(text: notebook.title);
+    final tagsController = TextEditingController(text: notebook.tags.join(', '));
+    int selectedCoverColor = notebook.coverColor;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: Text(strings.notebookTitleLabel),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: strings.notebookTitleLabel,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.edit_note),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tagsController,
+                  decoration: const InputDecoration(
+                    labelText: 'Tags (comma-separated)',
+                    hintText: 'work, math, exam',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.sell_outlined),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  strings.coverColor,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: AppColors.coverColors.map((c) {
+                    final colorVal = c.toARGB32();
+                    final isSelected = selectedCoverColor == colorVal;
+                    return GestureDetector(
+                      onTap: () => setDlgState(() => selectedCoverColor = colorVal),
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: c,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected ? Colors.black87 : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check, color: Colors.white, size: 18)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(strings.cancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final parsedTags = tagsController.text
+                    .split(',')
+                    .map((t) => t.trim())
+                    .where((t) => t.isNotEmpty)
+                    .toSet()
+                    .toList();
+                library.renameNotebook(
+                  notebook.id,
+                  controller.text,
+                  coverColor: selectedCoverColor,
+                  tags: parsedTags,
+                );
+                Navigator.pop(ctx);
+              },
+              child: Text(strings.done),
+            ),
+          ],
+        ),
+      ),
+    ).then((_) {
+      controller.dispose();
+      tagsController.dispose();
+    });
+  }
+
   void _showMoveToFolderDialog(BuildContext context, LibraryState library, AppStrings strings) {
     showDialog(
       context: context,
@@ -158,6 +259,28 @@ class NotebookCard extends StatelessWidget {
                       ),
                     ),
 
+                    // Pin Badge at top-left (1-tap toggle)
+                    if (!notebook.isDeleted)
+                      Positioned(
+                        top: 8,
+                        left: 24,
+                        child: GestureDetector(
+                          onTap: () => context.read<LibraryState>().togglePinNotebook(notebook.id),
+                          child: Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: notebook.isPinned ? Colors.amber.shade600 : Colors.black26,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              notebook.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                              size: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+
                     // PDF Badge if applicable
                     if (notebook.isPdfNotebook)
                       Positioned(
@@ -239,12 +362,56 @@ class NotebookCard extends StatelessWidget {
                             }
                             return [
                               PopupMenuItem(
+                                value: 'pin',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      notebook.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                                      size: 18,
+                                      color: Colors.amber.shade800,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(notebook.isPinned ? 'Unpin' : 'Pin'),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'rename',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.edit_outlined, size: 18, color: Colors.indigo),
+                                    const SizedBox(width: 8),
+                                    Text(strings.notebookTitleLabel),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'duplicate',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.copy_outlined, size: 18, color: Colors.deepPurple),
+                                    const SizedBox(width: 8),
+                                    Text(strings.duplicate),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem(
                                 value: 'export',
                                 child: Row(
                                   children: [
                                     const Icon(Icons.picture_as_pdf, size: 18, color: Colors.blue),
                                     const SizedBox(width: 8),
                                     Text(strings.exportPdf),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'exportBackup',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.archive_outlined, size: 18, color: Colors.teal),
+                                    SizedBox(width: 8),
+                                    Text('.kitnote Backup'),
                                   ],
                                 ),
                               ),
@@ -276,6 +443,12 @@ class NotebookCard extends StatelessWidget {
                               onRestore?.call();
                             } else if (action == 'deletePermanent') {
                               onDelete();
+                            } else if (action == 'pin') {
+                              library.togglePinNotebook(notebook.id);
+                            } else if (action == 'rename') {
+                              _showEditNotebookDialog(context, library, strings);
+                            } else if (action == 'duplicate') {
+                              await library.duplicateNotebook(notebook.id);
                             } else if (action == 'export') {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text('${strings.exportPdf}...')),
@@ -284,6 +457,13 @@ class NotebookCard extends StatelessWidget {
                               if (file != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text('${strings.exportPdf}: ${file.path.split('/').last}')),
+                                );
+                              }
+                            } else if (action == 'exportBackup') {
+                              final file = await library.exportNotebookBackup(notebook);
+                              if (file != null && context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Backup: ${file.path.split('/').last}')),
                                 );
                               }
                             } else if (action == 'moveToFolder') {
@@ -301,9 +481,13 @@ class NotebookCard extends StatelessWidget {
                         if (folderName != null) ...[
                           Icon(Icons.folder_outlined, size: 12, color: Colors.grey.shade600),
                           const SizedBox(width: 4),
-                          Text(
-                            folderName!,
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                          Flexible(
+                            child: Text(
+                              folderName!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                            ),
                           ),
                           const SizedBox(width: 8),
                         ],
@@ -311,6 +495,37 @@ class NotebookCard extends StatelessWidget {
                           '${notebook.pageCount} ${strings.page.toLowerCase()}',
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                         ),
+                        if (notebook.tags.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: notebook.tags.take(3).map((tag) {
+                                  return GestureDetector(
+                                    onTap: () => context.read<LibraryState>().setSearchQuery(tag),
+                                    child: Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        '#$tag',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.blue.shade700,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
 

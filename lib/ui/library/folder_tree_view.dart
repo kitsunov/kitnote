@@ -72,7 +72,8 @@ class FolderTreeView extends StatelessWidget {
                   color: folder.color,
                   isSelected: isSelected,
                   onTap: () => library.selectFolder(folder.id),
-                  onDelete: () => library.deleteFolder(folder.id),
+                  onRename: () => _showRenameFolderDialog(context, library, folder.id, folder.name),
+                  onDelete: () => _confirmDeleteFolder(context, library, folder.id, folder.name),
                 );
               },
             ),
@@ -129,6 +130,75 @@ class FolderTreeView extends StatelessWidget {
       ),
     ).then((_) => textController.dispose());
   }
+
+  void _showRenameFolderDialog(
+    BuildContext context,
+    LibraryState library,
+    String folderId,
+    String currentName,
+  ) {
+    final textController = TextEditingController(text: currentName);
+    final strings = AppLocalizations.of(context).strings;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.folderLabel),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: strings.folderNameHint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = textController.text.trim();
+              if (name.isNotEmpty) {
+                library.renameFolder(folderId, name);
+              }
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.done),
+          ),
+        ],
+      ),
+    ).then((_) => textController.dispose());
+  }
+
+  void _confirmDeleteFolder(
+    BuildContext context,
+    LibraryState library,
+    String folderId,
+    String folderName,
+  ) {
+    final strings = AppLocalizations.of(context).strings;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${strings.delete} "$folderName"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              library.deleteFolder(folderId);
+              Navigator.pop(ctx);
+            },
+            child: Text(strings.delete),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FolderListItem extends StatelessWidget {
@@ -138,6 +208,7 @@ class _FolderListItem extends StatelessWidget {
   final Color color;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onRename;
   final VoidCallback? onDelete;
 
   const _FolderListItem({
@@ -147,11 +218,13 @@ class _FolderListItem extends StatelessWidget {
     required this.color,
     required this.isSelected,
     required this.onTap,
+    this.onRename,
     this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context).strings;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
@@ -186,11 +259,43 @@ class _FolderListItem extends StatelessWidget {
                 style: TextStyle(fontSize: 11, color: isSelected ? Colors.blue.shade900 : Colors.black54),
               ),
             ),
-            if (onDelete != null) ...[
-              const SizedBox(width: 4),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
-                onPressed: onDelete,
+            if (onRename != null || onDelete != null) ...[
+              const SizedBox(width: 2),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                itemBuilder: (ctx) => [
+                  if (onRename != null)
+                    PopupMenuItem(
+                      value: 'rename',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.edit_outlined, size: 16, color: Colors.indigo),
+                          const SizedBox(width: 8),
+                          Text(strings.folderLabel),
+                        ],
+                      ),
+                    ),
+                  if (onDelete != null)
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Text(strings.delete, style: const TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                ],
+                onSelected: (val) {
+                  if (val == 'rename') {
+                    onRename?.call();
+                  } else if (val == 'delete') {
+                    onDelete?.call();
+                  }
+                },
               ),
             ],
           ],

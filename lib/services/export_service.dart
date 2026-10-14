@@ -34,6 +34,37 @@ class ExportService {
     return Rect.fromLTWH(dx, dy, renderW, renderH);
   }
 
+  static pw.TtfFont? _cachedUnicodeFont;
+
+  /// Transliterates Cyrillic characters if the PDF export had to fall back to ASCII-only Helvetica while offline.
+  static String sanitizeTextForFont(String input, {required bool isUnicodeFont}) {
+    if (isUnicodeFont) return input;
+    const map = <String, String>{
+      'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+      'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+      'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+      'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+      'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+      'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+      'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+      'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+      'Ф': 'F', 'Х': 'Kh', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Shch',
+      'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya',
+    };
+    final sb = StringBuffer();
+    for (int i = 0; i < input.length; i++) {
+      final ch = input[i];
+      if (map.containsKey(ch)) {
+        sb.write(map[ch]);
+      } else if (ch.codeUnitAt(0) <= 255) {
+        sb.write(ch);
+      } else {
+        sb.write('?');
+      }
+    }
+    return sb.toString();
+  }
+
   /// Exports a notebook into a multi-layer PDF file with background PDF, paper template, images, and strokes.
   /// Uses direct PdfPage and PdfGraphics to guarantee strictly bounded O(1) memory during export.
   static Future<File?> exportNotebookToPdf(
@@ -45,13 +76,20 @@ class ExportService {
       final pdfDoc = PdfDocument();
 
       PdfFont pdfFont;
+      bool isUnicodeFont = false;
       if (fontOverride is pw.TtfFont) {
         pdfFont = fontOverride.buildFont(pdfDoc);
+        isUnicodeFont = true;
+      } else if (_cachedUnicodeFont != null) {
+        pdfFont = _cachedUnicodeFont!.buildFont(pdfDoc);
+        isUnicodeFont = true;
       } else {
         try {
           final font = await PdfGoogleFonts.robotoRegular();
           if (font is pw.TtfFont) {
+            _cachedUnicodeFont = font;
             pdfFont = font.buildFont(pdfDoc);
+            isUnicodeFont = true;
           } else {
             pdfFont = PdfFont.helvetica(pdfDoc);
           }
@@ -116,7 +154,8 @@ class ExportService {
         // 4. Header with notebook title and page number (regular notebooks only)
         if (!isPdf) {
           canvas.setColor(PdfColors.grey600);
-          canvas.drawString(pdfFont, 9, notebook.title, 24, pageHeight - 20);
+          final safeHeaderTitle = sanitizeTextForFont(notebook.title, isUnicodeFont: isUnicodeFont);
+          canvas.drawString(pdfFont, 9, safeHeaderTitle, 24, pageHeight - 20);
           final pageIndicator = '${i + 1} / ${notebook.pages.length}';
           canvas.drawString(pdfFont, 9, pageIndicator, pageWidth - 80, pageHeight - 20);
         }
@@ -126,9 +165,14 @@ class ExportService {
           await _renderImageToPdf(pdfDoc, canvas, img, pageHeight);
         }
 
-        // 6. Vector Inking Strokes (with true PDF graphic state alpha)
+        // 6. Vector Inking Strokes (with true PDF graphic state alpha, round caps/joins & dynamic pen widths)
         if (page.strokes.isNotEmpty) {
-          for (final stroke in page.strokes) {
+          final orderedStrokes = [
+            ...page.strokes.where((s) => s.toolType == ToolType.highlighter),
+            ...page.strokes.where((s) => s.toolType != ToolType.highlighter),
+          ];
+
+          for (final stroke in orderedStrokes) {
             if (stroke.points.isEmpty) continue;
 
             final isHighlighter = stroke.toolType == ToolType.highlighter;
@@ -142,6 +186,8 @@ class ExportService {
             }
 
             canvas.setColor(baseColor);
+            canvas.setLineCap(isHighlighter ? PdfLineCap.square : PdfLineCap.round);
+            canvas.setLineJoin(PdfLineJoin.round);
             final strokeWidth = stroke.strokeWidth;
 
             if (stroke.points.length == 1) {
@@ -152,18 +198,78 @@ class ExportService {
                 strokeWidth / 2,
               );
               canvas.fillPath();
+            } else if (stroke.toolType == ToolType.fountainPen) {
+              final minWidth = math.max(0.2, strokeWidth * 0.2);
+              final maxWidth = math.max(minWidth, strokeWidth * 2.2);
+              for (int p = 0; p < stroke.points.length - 1; p++) {
+                final p0 = stroke.points[p];
+                final p1 = stroke.points[p + 1];
+                double press0 = p0.pressure > 0 && p0.pressure != 1.0 ? p0.pressure : 0.7;
+                double press1 = p1.pressure > 0 && p1.pressure != 1.0 ? p1.pressure : 0.7;
+                if (p0.pressure == 1.0 && p1.pressure == 1.0 && p1.timestamp > p0.timestamp) {
+                  final dt = (p1.timestamp - p0.timestamp).clamp(1, 100);
+                  final dx = p1.x - p0.x;
+                  final dy = p1.y - p0.y;
+                  final dist = math.sqrt(dx * dx + dy * dy);
+                  final speed = dist / dt;
+                  final speedFactor = (1.25 - speed * 0.35).clamp(0.4, 1.4);
+                  press0 = speedFactor;
+                  press1 = speedFactor;
+                }
+                final segW = (strokeWidth * (0.35 + 0.85 * ((press0 + press1) / 2))).clamp(minWidth, maxWidth);
+                canvas.setLineWidth(segW);
+                canvas.moveTo(p0.x, pageHeight - p0.y);
+                canvas.lineTo(p1.x, pageHeight - p1.y);
+                canvas.strokePath();
+              }
+            } else if (stroke.toolType == ToolType.brushPen) {
+              final total = stroke.points.length;
+              final minWidth = math.max(0.2, strokeWidth * 0.2);
+              final maxWidth = math.max(minWidth, strokeWidth * 2.5);
+              for (int p = 0; p < stroke.points.length - 1; p++) {
+                final p0 = stroke.points[p];
+                final p1 = stroke.points[p + 1];
+                double taper = 1.0;
+                if (p < 4) {
+                  taper = (p + 1) / 5.0;
+                } else if (p > total - 6) {
+                  taper = (total - p) / 6.0;
+                }
+                final dx = p1.x - p0.x;
+                final dy = p1.y - p0.y;
+                final angle = math.atan2(dy, dx);
+                final angleFactor = 0.45 + 0.75 * math.sin(angle + math.pi / 4).abs();
+                final p0Press = p0.pressure > 0 ? p0.pressure : 0.8;
+                final segW = (strokeWidth * angleFactor * taper * (0.5 + 0.6 * p0Press)).clamp(minWidth, maxWidth);
+                canvas.setLineWidth(segW);
+                canvas.moveTo(p0.x, pageHeight - p0.y);
+                canvas.lineTo(p1.x, pageHeight - p1.y);
+                canvas.strokePath();
+              }
             } else {
               canvas.setLineWidth(strokeWidth);
               canvas.moveTo(
                 stroke.points.first.x,
                 pageHeight - stroke.points.first.y,
               );
-              for (int p = 1; p < stroke.points.length; p++) {
-                canvas.lineTo(
-                  stroke.points[p].x,
-                  pageHeight - stroke.points[p].y,
+              for (int p = 1; p < stroke.points.length - 1; p++) {
+                final curr = stroke.points[p];
+                final next = stroke.points[p + 1];
+                final midX = (curr.x + next.x) / 2.0;
+                final midY = (curr.y + next.y) / 2.0;
+                canvas.curveTo(
+                  curr.x,
+                  pageHeight - curr.y,
+                  curr.x,
+                  pageHeight - curr.y,
+                  midX,
+                  pageHeight - midY,
                 );
               }
+              canvas.lineTo(
+                stroke.points.last.x,
+                pageHeight - stroke.points.last.y,
+              );
               canvas.strokePath();
             }
 
@@ -212,7 +318,8 @@ class ExportService {
             final line = lines[lineIdx];
             if (line.trim().isEmpty) continue;
             final pdfY = pageHeight - (txt.y + 8) - (lineIdx + 1) * lineHeight;
-            canvas.drawString(pdfFont, txt.fontSize, line, txt.x + 8, pdfY);
+            final safeLine = sanitizeTextForFont(line, isUnicodeFont: isUnicodeFont);
+            canvas.drawString(pdfFont, txt.fontSize, safeLine, txt.x + 8, pdfY);
           }
         }
       }

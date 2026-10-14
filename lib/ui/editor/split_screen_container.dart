@@ -159,33 +159,36 @@ class _SplitScreenContainerState extends State<SplitScreenContainer> {
                             const Icon(Icons.menu_book, size: 16, color: Colors.black54),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: library.notebooks.any((n) => n.id == widget.secondaryNotebook?.id)
-                                      ? widget.secondaryNotebook?.id
-                                      : null,
-                                  hint: Text(
-                                    strings.selectNotebook,
-                                    style: const TextStyle(fontSize: 13),
+                              child: () {
+                                final activeNotebooks = library.notebooks.where((n) => !n.isDeleted).toList();
+                                return DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    isExpanded: true,
+                                    value: activeNotebooks.any((n) => n.id == widget.secondaryNotebook?.id)
+                                        ? widget.secondaryNotebook?.id
+                                        : null,
+                                    hint: Text(
+                                      strings.selectNotebook,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    items: activeNotebooks.map((nb) {
+                                      return DropdownMenuItem<String>(
+                                        value: nb.id,
+                                        child: Text(
+                                          nb.title,
+                                          style: const TextStyle(fontSize: 13),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newId) {
+                                      if (newId != null) {
+                                        workspace.setSecondaryNotebook(newId);
+                                      }
+                                    },
                                   ),
-                                  items: library.notebooks.map((nb) {
-                                    return DropdownMenuItem<String>(
-                                      value: nb.id,
-                                      child: Text(
-                                        nb.title,
-                                        style: const TextStyle(fontSize: 13),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (newId) {
-                                    if (newId != null) {
-                                      workspace.setSecondaryNotebook(newId);
-                                    }
-                                  },
-                                ),
-                              ),
+                                );
+                              }(),
                             ),
                             IconButton(
                               icon: const Icon(Icons.close, size: 18),

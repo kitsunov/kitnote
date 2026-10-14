@@ -24,7 +24,7 @@ class UpdateInfo {
 }
 
 class UpdateService {
-  static const String currentVersion = '1.0.9';
+  static const String currentVersion = '1.1.0';
   static const String githubOwner = 'kitsunov';
   static const String githubRepo = 'kitnote';
   static const MethodChannel _channel = MethodChannel('com.kitnote.app/updater');
@@ -54,8 +54,11 @@ class UpdateService {
         for (final asset in assets) {
           final name = (asset['name'] as String? ?? '').toLowerCase();
           if (name.endsWith('.apk')) {
-            apkUrl = asset['browser_download_url'] as String?;
-            break;
+            final candidateUrl = asset['browser_download_url'] as String?;
+            if (candidateUrl != null && isTrustedDownloadUrl(candidateUrl)) {
+              apkUrl = candidateUrl;
+              break;
+            }
           }
         }
 
@@ -76,6 +79,16 @@ class UpdateService {
       debugPrint('KitNote update check failed: $e');
       return null;
     }
+  }
+
+  /// Ensures APK download URLs strictly use HTTPS and originate from trusted GitHub domains
+  static bool isTrustedDownloadUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.toLowerCase() != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'github.com' ||
+        host.endsWith('.github.com') ||
+        host.endsWith('.githubusercontent.com');
   }
 
   static bool _isVersionNewer(String latest, String current) {
@@ -164,6 +177,9 @@ class UpdateService {
 
     File? partialFile;
     try {
+      if (!isTrustedDownloadUrl(apkUrl)) {
+        throw Exception('Untrusted or non-HTTPS download URL');
+      }
       final request = http.Request('GET', Uri.parse(apkUrl));
       final response = await client.send(request);
 
@@ -175,7 +191,8 @@ class UpdateService {
       final tempDir = await getTemporaryDirectory();
       final uri = Uri.parse(apkUrl);
       final remoteFileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'KitNote-v$currentVersion.apk';
-      final fileName = remoteFileName.toLowerCase().endsWith('.apk') ? remoteFileName : 'KitNote-v$currentVersion.apk';
+      final sanitizedName = remoteFileName.replaceAll(RegExp(r'[^a-zA-Z0-9._\-]'), '');
+      final fileName = sanitizedName.toLowerCase().endsWith('.apk') ? sanitizedName : 'KitNote-v$currentVersion.apk';
       final file = File('${tempDir.path}/$fileName');
       partialFile = file;
       if (await file.exists()) {
